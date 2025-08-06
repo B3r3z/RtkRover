@@ -1,0 +1,16 @@
+# RTK Mower Flask Application
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+env/
+venv/
+*.log
+*.json
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

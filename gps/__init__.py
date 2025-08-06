@@ -1,0 +1,1 @@
+# GPS/RTK modules placeholder

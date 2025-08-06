@@ -1,0 +1,6 @@
+# Python dependencies for RTK Mower project
+Flask==2.3.3
+pyserial==3.5
+requests==2.31.0
+pynmea2==1.19.0
+python-dotenv==1.0.0
