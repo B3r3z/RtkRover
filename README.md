@@ -37,8 +37,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Test połączenia RTK
+## Testowanie
 
+**Test komponentów (przed deploymentem):**
+```bash
+source venv/bin/activate
+python test_components.py
+```
+
+**Test połączenia RTK (na Raspberry Pi z hardware):**
 ```bash
 source venv/bin/activate
 python -m gps.rtk_manager
@@ -46,7 +53,18 @@ python -m gps.rtk_manager
 
 ## Uruchomienie
 
+**Flask web interface:**
+```bash
+source venv/bin/activate
+python run.py
+```
+
+Alternatywnie:
 ```bash
 source venv/bin/activate
 python -m flask --app app run --host=0.0.0.0 --port=5000
 ```
+
+**Dostęp do interfejsu:**
+- http://localhost:5000 (lokalnie)
+- http://[IP_RASPBERRY]:5000 (zdalnie)

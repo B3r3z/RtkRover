@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTK Mower - GPS Tracking</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🚜 RTK Mower GPS Tracking</h1>
+            <div class="status-panel">
+                <div id="rtk-status" class="status-indicator">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Connecting...</span>
+                </div>
+                <div class="coords-display">
+                    <span id="coordinates">---.------ , ---.------</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Map Container -->
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+
+        <!-- Info Panel -->
+        <div class="info-panel">
+            <div class="info-section">
+                <h3>GPS Info</h3>
+                <div class="info-row">
+                    <span>Satellites:</span>
+                    <span id="satellites">--</span>
+                </div>
+                <div class="info-row">
+                    <span>HDOP:</span>
+                    <span id="hdop">--</span>
+                </div>
+                <div class="info-row">
+                    <span>Speed:</span>
+                    <span id="speed">-- knots</span>
+                </div>
+                <div class="info-row">
+                    <span>Heading:</span>
+                    <span id="heading">--°</span>
+                </div>
+            </div>
+            
+            <div class="info-section">
+                <h3>Track Info</h3>
+                <div class="info-row">
+                    <span>Points:</span>
+                    <span id="track-points">0</span>
+                </div>
+                <div class="info-row">
+                    <span>Session:</span>
+                    <span id="session-id">--</span>
+                </div>
+                <div class="info-row">
+                    <span>Last Update:</span>
+                    <span id="last-update">--</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+</body>
+</html>
