@@ -16,7 +16,9 @@ rtk_thread = None
 
 def create_app():
     """Flask application factory"""
-    app = Flask(__name__)
+    app = Flask(__name__, 
+                template_folder='../templates',
+                static_folder='../static')
     app.config['SECRET_KEY'] = 'rtk-mower-secret-key'
     
     # Setup logging
