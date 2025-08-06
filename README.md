@@ -16,6 +16,17 @@ Autonomiczny robot-kosiarka z pozycjonowaniem GPS-RTK na Raspberry Pi Zero 2W.
 - `logs/` - Logi systemu
 - `tests/` - Testy jednostkowe
 
+## Konfiguracja
+
+1. **Skopiuj plik konfiguracyjny:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Wypełnij dane ASG-EUPOS w pliku `.env`:**
+   - Zarejestruj się na: https://www.asgeupos.pl/
+   - Wpisz swój username i password w `.env`
+
 ## Instalacja na Raspberry Pi
 
 ```bash
@@ -24,6 +35,13 @@ cd rtk_mower
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Test połączenia RTK
+
+```bash
+source venv/bin/activate
+python -m gps.rtk_manager
 ```
 
 ## Uruchomienie
