@@ -54,27 +54,33 @@ class RTKManager:
             return False
     
     def start(self):
-        """Start complete RTK system"""
+        """Start RTK system - graceful degradation if NTRIP fails"""
         try:
-            # 1. Open GPS serial connection
+            # 1. Always try to connect to GPS first
             self._connect_gps()
             
-            # 2. Connect to NTRIP server  
-            if self._connect_ntrip():
-                # 3. Start processing threads
-                self.running = True
-                self._start_threads()
-                self.rtk_status = "Connected"
-                logger.info("RTK system started successfully")
-                return True
+            # 2. Try to connect to NTRIP server (optional)
+            ntrip_connected = self._connect_ntrip()
+            
+            if ntrip_connected:
+                self.rtk_status = "RTK Connected"
+                logger.info("Full RTK system started (GPS + NTRIP)")
             else:
-                self._cleanup_connections()
-                return False
+                self.rtk_status = "GPS Only"
+                logger.warning("Starting in GPS-only mode (NTRIP failed)")
+            
+            # 3. Start processing threads regardless
+            self.running = True
+            self._start_threads()
+            
+            logger.info(f"RTK system started successfully in mode: {self.rtk_status}")
+            return True
                 
         except Exception as e:
             logger.error(f"Failed to start RTK system: {e}")
-            self._cleanup_connections()
-            return False
+            # Try demo mode if everything fails
+            self._start_demo_mode()
+            return True
     
     def _connect_gps(self):
         """Connect to GPS module via serial"""
@@ -150,6 +156,18 @@ class RTKManager:
                 logger.error(f"Demo simulation error: {e}")
                 break
     
+    def _start_demo_mode(self):
+        """Start demo mode when both GPS and NTRIP fail"""
+        logger.info("Starting complete DEMO mode - no hardware available")
+        
+        self._demo_mode = True
+        self.rtk_status = "Demo Mode"
+        self.running = True
+        
+        # Start demo simulation
+        self._start_demo_simulation()
+        logger.info("Demo mode started successfully")
+    
     def _connect_ntrip(self):
         """Connect to NTRIP caster"""
         if self._demo_mode:
@@ -204,24 +222,32 @@ class RTKManager:
         return request
     
     def _start_threads(self):
-        """Start all processing threads"""
+        """Start processing threads based on available connections"""
         if self._demo_mode:
             logger.info("DEMO MODE: Threads already started in simulation")
             return
+        
+        # Always start NMEA reading if GPS is connected
+        if self.gps_serial and self.nmea_reader:
+            self.nmea_thread = threading.Thread(target=self._nmea_loop, daemon=True)
+            self.nmea_thread.start()
+            logger.info("NMEA processing thread started")
+        
+        # Start RTCM and GGA threads only if NTRIP is connected
+        if self.ntrip_socket:
+            # RTCM receiving and forwarding thread
+            self.rtcm_thread = threading.Thread(target=self._rtcm_loop, daemon=True)
+            self.rtcm_thread.start()
             
-        # RTCM receiving and forwarding thread
-        self.rtcm_thread = threading.Thread(target=self._rtcm_loop, daemon=True)
-        self.rtcm_thread.start()
+            # GGA uploading thread (every 1 second)
+            self.gga_thread = threading.Thread(target=self._gga_upload_loop, daemon=True)
+            self.gga_thread.start()
+            
+            logger.info("RTCM and GGA threads started (NTRIP mode)")
+        else:
+            logger.info("GPS-only mode: Only NMEA processing active")
         
-        # NMEA reading and processing thread  
-        self.nmea_thread = threading.Thread(target=self._nmea_loop, daemon=True)
-        self.nmea_thread.start()
-        
-        # GGA uploading thread (every 1 second)
-        self.gga_thread = threading.Thread(target=self._gga_upload_loop, daemon=True)
-        self.gga_thread.start()
-        
-        logger.info("All RTK processing threads started")
+        logger.info("All available threads started")
     
     def _rtcm_loop(self):
         """Receive RTCM corrections and forward to GPS - based on Waveshare"""
@@ -268,7 +294,7 @@ class RTKManager:
         """Periodically send GGA to NTRIP server - based on Waveshare timing"""
         logger.info("GGA upload loop started")
         
-        while self.running:
+        while self.running and self.ntrip_socket:
             try:
                 # Wait 1 second between uploads (like Waveshare 10 * 100ms)
                 time.sleep(1)
@@ -281,6 +307,7 @@ class RTKManager:
                         
             except Exception as e:
                 logger.error(f"GGA upload error: {e}")
+                # Continue loop even if upload fails
                 
         logger.info("GGA upload loop ended")
     
