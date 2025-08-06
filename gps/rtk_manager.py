@@ -55,6 +55,10 @@ class RTKManager:
     
     def start(self):
         """Start RTK system - graceful degradation if NTRIP fails"""
+        if self.running:
+            logger.warning("RTK system is already running")
+            return True
+            
         try:
             # 1. Always try to connect to GPS first
             self._connect_gps()
@@ -68,6 +72,13 @@ class RTKManager:
             else:
                 self.rtk_status = "GPS Only"
                 logger.warning("Starting in GPS-only mode (NTRIP failed)")
+                # Clean up failed NTRIP socket
+                if self.ntrip_socket:
+                    try:
+                        self.ntrip_socket.close()
+                    except:
+                        pass
+                    self.ntrip_socket = None
             
             # 3. Start processing threads regardless
             self.running = True
@@ -227,27 +238,34 @@ class RTKManager:
             logger.info("DEMO MODE: Threads already started in simulation")
             return
         
+        threads_started = []
+        
         # Always start NMEA reading if GPS is connected
         if self.gps_serial and self.nmea_reader:
             self.nmea_thread = threading.Thread(target=self._nmea_loop, daemon=True)
             self.nmea_thread.start()
-            logger.info("NMEA processing thread started")
+            threads_started.append("NMEA processing")
         
-        # Start RTCM and GGA threads only if NTRIP is connected
+        # Start RTCM and GGA threads ONLY if NTRIP is actually connected
         if self.ntrip_socket:
             # RTCM receiving and forwarding thread
             self.rtcm_thread = threading.Thread(target=self._rtcm_loop, daemon=True)
             self.rtcm_thread.start()
+            threads_started.append("RTCM forwarding")
             
-            # GGA uploading thread (every 1 second)
+            # GGA uploading thread (every 1 second)  
             self.gga_thread = threading.Thread(target=self._gga_upload_loop, daemon=True)
             self.gga_thread.start()
+            threads_started.append("GGA uploading")
             
-            logger.info("RTCM and GGA threads started (NTRIP mode)")
+            logger.info(f"NTRIP mode: Started threads: {', '.join(threads_started)}")
         else:
-            logger.info("GPS-only mode: Only NMEA processing active")
+            logger.info(f"GPS-only mode: Started threads: {', '.join(threads_started)}")
         
-        logger.info("All available threads started")
+        if threads_started:
+            logger.info(f"All available threads started: {', '.join(threads_started)}")
+        else:
+            logger.warning("No processing threads started - no connections available")
     
     def _rtcm_loop(self):
         """Receive RTCM corrections and forward to GPS - based on Waveshare"""
@@ -275,23 +293,44 @@ class RTKManager:
         """Read and process NMEA sentences - based on Waveshare pynmeagps approach"""
         logger.info("NMEA processing loop started")
         
-        while self.running and self.nmea_reader:
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
+        while self.running and self.nmea_reader and consecutive_errors < max_consecutive_errors:
             try:
                 # Use pynmeagps reader like in Waveshare example
-                if self.gps_serial.in_waiting > 0:
+                if self.gps_serial and self.gps_serial.in_waiting > 0:
                     raw_data, parsed_data = self.nmea_reader.read()
                     
                     if raw_data and parsed_data:
                         self._process_nmea_message(raw_data, parsed_data)
+                        consecutive_errors = 0  # Reset error counter on success
+                    else:
+                        # No data available, wait a bit
+                        time.sleep(0.1)
+                else:
+                    # No data waiting, short sleep
+                    time.sleep(0.1)
                         
             except Exception as e:
-                logger.error(f"NMEA loop error: {e}")
-                break
+                consecutive_errors += 1
+                logger.error(f"NMEA loop error ({consecutive_errors}/{max_consecutive_errors}): {e}")
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error("Too many consecutive NMEA errors, stopping loop")
+                    break
+                    
+                # Wait before retry
+                time.sleep(1)
                 
         logger.info("NMEA processing loop ended")
     
     def _gga_upload_loop(self):
         """Periodically send GGA to NTRIP server - based on Waveshare timing"""
+        if not self.ntrip_socket:
+            logger.warning("GGA upload loop: No NTRIP connection, exiting")
+            return
+            
         logger.info("GGA upload loop started")
         
         while self.running and self.ntrip_socket:
@@ -299,7 +338,12 @@ class RTKManager:
                 # Wait 1 second between uploads (like Waveshare 10 * 100ms)
                 time.sleep(1)
                 
-                if self.current_position and self.ntrip_socket:
+                # Double check connection is still valid
+                if not self.ntrip_socket:
+                    logger.info("NTRIP connection lost, stopping GGA upload")
+                    break
+                
+                if self.current_position:
                     gga_sentence = self._build_gga_sentence()
                     if gga_sentence:
                         # Upload GGA to NTRIP server
@@ -307,7 +351,9 @@ class RTKManager:
                         
             except Exception as e:
                 logger.error(f"GGA upload error: {e}")
-                # Continue loop even if upload fails
+                # Continue loop even if upload fails, but check if connection is still valid
+                if not self.ntrip_socket:
+                    break
                 
         logger.info("GGA upload loop ended")
     
@@ -401,9 +447,15 @@ class RTKManager:
                 gga_data = (gga_sentence + "\r\n").encode()
                 self.ntrip_socket.send(gga_data)
                 logger.debug(f"Uploaded GGA: {gga_sentence}")
+            else:
+                logger.debug("No NTRIP socket available for GGA upload")
                 
         except Exception as e:
             logger.error(f"Error uploading GGA: {e}")
+            # If socket error, mark it as disconnected
+            if "timed out" in str(e) or "Connection" in str(e):
+                logger.warning("NTRIP connection appears to be lost")
+                self.ntrip_socket = None
     
     def stop(self):
         """Stop RTK system"""
