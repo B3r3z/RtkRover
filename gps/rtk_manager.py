@@ -32,8 +32,8 @@ class RTKManager:
         self.ntrip_config = rtk_config
         self.uart_config = uart_config
         
-        # NTRIP settings
-        self.user_agent = "RTKMower/1.0"
+        # NTRIP settings - compatible with ASG-EUPOS
+        self.user_agent = "NTRIP RTKMower/1.0"
         self.reconnect_attempts = 3
         self.reconnect_delay = 5
         
@@ -234,9 +234,12 @@ class RTKManager:
             return True
             
         try:
-            # Create socket connection
+            # Create socket connection with keep-alive
             self.ntrip_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.ntrip_socket.settimeout(10)  # Connection timeout
+            
+            # Enable keep-alive for ASG-EUPOS compatibility
+            self.ntrip_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             
             logger.info(f"Connecting to NTRIP caster {self.ntrip_config['caster']}:{self.ntrip_config['port']}")
             self.ntrip_socket.connect((self.ntrip_config["caster"], self.ntrip_config["port"]))
@@ -474,29 +477,26 @@ class RTKManager:
                         time.sleep(5)  # Wait before retry
                         continue
                 
-                # Wait 1 second between uploads (like Waveshare 10 * 100ms)
-                time.sleep(1)
+                # Wait between uploads - ASG-EUPOS może preferować rzadsze GGA
+                time.sleep(10)  # Zwiększone z 1 do 10 sekund
                 
-                # Send GGA even if no current position (for keep-alive)
-                gga_sentence = self._build_gga_sentence()
-                if gga_sentence:
-                    # Upload GGA to NTRIP server
-                    upload_success = self._upload_gga(gga_sentence)
-                    if upload_success:
-                        failed_uploads = 0  # Reset counter on success
-                    else:
-                        failed_uploads += 1
-                        if failed_uploads >= max_failed_uploads:
-                            logger.warning("Too many GGA upload failures, marking connection as lost")
-                            self._cleanup_ntrip_socket()
-                            failed_uploads = 0
-                else:
-                    # Send dummy GGA for keep-alive if no real position
-                    dummy_gga = self._build_dummy_gga()
-                    if dummy_gga:
-                        upload_success = self._upload_gga(dummy_gga)
-                        if not upload_success:
+                # Send GGA tylko jeśli mamy realną pozycję (nie wysyłaj dummy GGA)
+                if self.current_position:
+                    gga_sentence = self._build_gga_sentence()
+                    if gga_sentence:
+                        # Upload GGA to NTRIP server
+                        upload_success = self._upload_gga(gga_sentence)
+                        if upload_success:
+                            failed_uploads = 0  # Reset counter on success
+                        else:
                             failed_uploads += 1
+                            if failed_uploads >= max_failed_uploads:
+                                logger.warning("Too many GGA upload failures, marking connection as lost")
+                                self._cleanup_ntrip_socket()
+                                failed_uploads = 0
+                else:
+                    # Bez pozycji, nie wysyłaj nic - pozwól na natural keep-alive
+                    logger.debug("No GPS position available, skipping GGA upload")
                         
             except Exception as e:
                 failed_uploads += 1
@@ -508,16 +508,21 @@ class RTKManager:
     def _send_initial_gga(self):
         """Send initial GGA to establish NTRIP session"""
         try:
-            # Use last known position or default location
+            # Wait a bit for GPS to get position
+            time.sleep(1)
+            
+            # Use current position if available
             if self.current_position:
                 gga_sentence = self._build_gga_sentence()
+                logger.debug("Using current GPS position for initial GGA")
             else:
                 # Use approximate Poland center for initial GGA
                 gga_sentence = "$GNGGA,120000,5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00"
+                logger.debug("Using default position for initial GGA")
             
             if gga_sentence and self.ntrip_socket:
                 self._upload_gga(gga_sentence)
-                logger.debug("Initial GGA sent to establish NTRIP session")
+                logger.info("Initial GGA sent to establish NTRIP session")
                 
         except Exception as e:
             logger.warning(f"Failed to send initial GGA: {e}")
