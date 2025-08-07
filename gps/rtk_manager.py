@@ -188,7 +188,7 @@ class RTKManager:
         try:
             # Create socket connection
             self.ntrip_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.ntrip_socket.settimeout(10)
+            self.ntrip_socket.settimeout(15)  # Zwiększone z 10 do 15 sekund
             
             logger.info(f"Connecting to NTRIP caster {self.ntrip_config['caster']}:{self.ntrip_config['port']}")
             self.ntrip_socket.connect((self.ntrip_config["caster"], self.ntrip_config["port"]))
@@ -199,14 +199,25 @@ class RTKManager:
             
             # Send NTRIP request (based on Waveshare format)
             request = self._build_ntrip_request(auth_b64)
+            logger.debug(f"Sending NTRIP request...")
             self.ntrip_socket.send(request.encode())
             
-            # Check response
+            # Check response with longer timeout
+            logger.debug("Waiting for NTRIP response...")
             response = self.ntrip_socket.recv(1024).decode()
+            logger.debug(f"NTRIP response: {response}")
             
             if "200 OK" in response:
                 logger.info("NTRIP connection successful")
+                # Set socket to non-blocking for data reception
+                self.ntrip_socket.settimeout(5)
                 return True
+            elif "401" in response:
+                logger.error(f"NTRIP authentication failed: {response}")
+                return False
+            elif "404" in response:
+                logger.error(f"NTRIP mountpoint not found: {response}")
+                return False
             else:
                 logger.error(f"NTRIP connection failed: {response}")
                 return False
@@ -294,20 +305,35 @@ class RTKManager:
         logger.info("NMEA processing loop started")
         
         consecutive_errors = 0
-        max_consecutive_errors = 5
+        max_consecutive_errors = 10  # Zwiększone z 5 bo checksum errors nie są krytyczne
+        nmea_errors = 0
         
         while self.running and self.nmea_reader and consecutive_errors < max_consecutive_errors:
             try:
                 # Use pynmeagps reader like in Waveshare example
                 if self.gps_serial and self.gps_serial.in_waiting > 0:
-                    raw_data, parsed_data = self.nmea_reader.read()
-                    
-                    if raw_data and parsed_data:
-                        self._process_nmea_message(raw_data, parsed_data)
-                        consecutive_errors = 0  # Reset error counter on success
-                    else:
-                        # No data available, wait a bit
-                        time.sleep(0.1)
+                    try:
+                        raw_data, parsed_data = self.nmea_reader.read()
+                        
+                        if raw_data and parsed_data:
+                            self._process_nmea_message(raw_data, parsed_data)
+                            consecutive_errors = 0  # Reset error counter on success
+                        else:
+                            # No data available, wait a bit
+                            time.sleep(0.1)
+                            
+                    except Exception as nmea_error:
+                        # Checksum errors from pynmeagps are not fatal
+                        if "checksum" in str(nmea_error) or "invalid" in str(nmea_error):
+                            nmea_errors += 1
+                            if nmea_errors % 10 == 0:  # Log every 10th error to avoid spam
+                                logger.debug(f"NMEA checksum errors: {nmea_errors} (non-fatal)")
+                            time.sleep(0.1)
+                        else:
+                            # Other NMEA errors might be more serious
+                            consecutive_errors += 1
+                            logger.warning(f"NMEA parsing error: {nmea_error}")
+                            time.sleep(0.5)
                 else:
                     # No data waiting, short sleep
                     time.sleep(0.1)
@@ -323,7 +349,7 @@ class RTKManager:
                 # Wait before retry
                 time.sleep(1)
                 
-        logger.info("NMEA processing loop ended")
+        logger.info(f"NMEA processing loop ended (total checksum errors: {nmea_errors})")
     
     def _gga_upload_loop(self):
         """Periodically send GGA to NTRIP server - based on Waveshare timing"""
@@ -333,7 +359,10 @@ class RTKManager:
             
         logger.info("GGA upload loop started")
         
-        while self.running and self.ntrip_socket:
+        failed_uploads = 0
+        max_failed_uploads = 5
+        
+        while self.running and self.ntrip_socket and failed_uploads < max_failed_uploads:
             try:
                 # Wait 1 second between uploads (like Waveshare 10 * 100ms)
                 time.sleep(1)
@@ -347,12 +376,19 @@ class RTKManager:
                     gga_sentence = self._build_gga_sentence()
                     if gga_sentence:
                         # Upload GGA to NTRIP server
-                        self._upload_gga(gga_sentence)
+                        upload_success = self._upload_gga(gga_sentence)
+                        if upload_success is False:
+                            # Broken pipe or similar fatal error
+                            break
+                        failed_uploads = 0  # Reset counter on success
                         
             except Exception as e:
-                logger.error(f"GGA upload error: {e}")
-                # Continue loop even if upload fails, but check if connection is still valid
-                if not self.ntrip_socket:
+                failed_uploads += 1
+                logger.error(f"GGA upload loop error ({failed_uploads}/{max_failed_uploads}): {e}")
+                
+                # If too many failures or connection lost, stop
+                if failed_uploads >= max_failed_uploads or not self.ntrip_socket:
+                    logger.warning("Too many GGA upload failures, stopping loop")
                     break
                 
         logger.info("GGA upload loop ended")
@@ -452,10 +488,20 @@ class RTKManager:
                 
         except Exception as e:
             logger.error(f"Error uploading GGA: {e}")
-            # If socket error, mark it as disconnected
-            if "timed out" in str(e) or "Connection" in str(e):
-                logger.warning("NTRIP connection appears to be lost")
+            # If socket error, mark it as disconnected and stop trying
+            if "Broken pipe" in str(e) or "Connection" in str(e) or "timed out" in str(e):
+                logger.warning("NTRIP connection lost - cleaning up socket")
+                try:
+                    if self.ntrip_socket:
+                        self.ntrip_socket.close()
+                except:
+                    pass
                 self.ntrip_socket = None
+                # Stop the running state to prevent more upload attempts
+                if "Broken pipe" in str(e):
+                    logger.info("Stopping GGA uploads due to broken connection")
+                    return False
+        return True
     
     def stop(self):
         """Stop RTK system"""
