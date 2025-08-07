@@ -128,25 +128,39 @@ def _register_routes(app):
                 "running": False,
                 "ntrip_connected": False,
                 "gps_connected": False,
+                "satellites": 0,
+                "hdop": 0.0,
+                "last_update": None,
+                "system_mode": "Offline",
                 "error": "RTK system not initialized"
             }), 503
         
         status = rtk_manager.get_status()
         
-        # Add current position info
+        # Add current position info and additional details
         position = rtk_manager.get_current_position()
         if position:
             status.update({
-                "satellites": position.satellites,
-                "hdop": position.hdop,
-                "last_update": position.timestamp
+                "satellites": position.get("satellites", 0),
+                "hdop": position.get("hdop", 0.0),
+                "last_update": position.get("timestamp"),
+                "accuracy_status": position.get("rtk_status", "Unknown")
             })
         else:
             status.update({
                 "satellites": 0,
                 "hdop": 0.0,
-                "last_update": None
+                "last_update": None,
+                "accuracy_status": "No Fix"
             })
+        
+        # Add system mode description
+        if status.get("ntrip_connected") and status.get("gps_connected"):
+            status["system_mode"] = "RTK Mode"
+        elif status.get("gps_connected"):
+            status["system_mode"] = "GPS Only"
+        else:
+            status["system_mode"] = "Offline"
         
         return jsonify(status)
     

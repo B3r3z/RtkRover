@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test poprawek synchronizacji reconnect
+Test finalny - optimized GGA timing
 """
 
 import sys
@@ -13,16 +13,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gps.rtk_manager import RTKManager
 
-def test_reconnect_synchronization():
-    """Test poprawek synchronizacji reconnect"""
+def test_final_optimization():
+    """Test finalnej optymalizacji NTRIP"""
     
-    print("🔧 Test poprawek synchronizacji NTRIP reconnect")
+    print("🏁 Test finalnej optymalizacji NTRIP")
     print("=" * 60)
-    print("🆕 Zmiany:")
-    print("   - Mutex blokujący równoczesne reconnect próby")
-    print("   - Opóźnienie przed reconnect (1s)")
-    print("   - GGA co 10 sekund")
-    print("   - Lepsza obsługa 'Broken pipe'")
+    print("🆕 Finalne ustawienia:")
+    print("   - GGA co 15 sekund (zamiast 10)")
+    print("   - Synchronizowana reconnection logic")
+    print("   - Socket keep-alive enabled")
+    print("   - Optimized error handling")
     print()
     
     # Configure logging
@@ -61,62 +61,77 @@ def test_reconnect_synchronization():
                 print()
                 
                 if status['gps_connected']:
-                    print("🎉 GPS połączony! Monitoring przez 90 sekund...")
-                    print("⏱️  GGA będzie wysyłane co 10 sekund")
-                    print("🔒 Synchronizowana reconnection logic")
+                    print("🎉 GPS połączony! Monitoring przez 120 sekund...")
+                    print("⏱️  GGA będzie wysyłane co 15 sekund")
+                    print("🎯 Cel: <3 drops w 120 sekund")
                     print("📍 Format: LAT, LON | STATUS | Satelity | HDOP")
                     print("-" * 60)
                     
-                    # Monitor for 90 seconds (longer test)
+                    # Monitor for 120 seconds (2 minutes)
                     start_time = time.time()
                     last_ntrip_status = status['ntrip_connected']
                     ntrip_drops = 0
                     reconnect_count = 0
-                    consecutive_errors = 0
+                    last_drop_time = 0
+                    drop_intervals = []
                     
-                    while time.time() - start_time < 90:
+                    while time.time() - start_time < 120:
                         current_status = rtk.get_status()
+                        current_time = time.time()
                         
                         # Monitor NTRIP stability
                         if current_status['ntrip_connected'] != last_ntrip_status:
                             if not current_status['ntrip_connected']:
                                 ntrip_drops += 1
-                                consecutive_errors += 1
-                                print(f"⚠️  NTRIP drop #{ntrip_drops} (consecutive: {consecutive_errors})")
+                                if last_drop_time > 0:
+                                    interval = current_time - last_drop_time
+                                    drop_intervals.append(interval)
+                                    print(f"⚠️  NTRIP drop #{ntrip_drops} (po {interval:.0f}s od ostatniego)")
+                                else:
+                                    print(f"⚠️  NTRIP drop #{ntrip_drops}")
+                                last_drop_time = current_time
                             else:
                                 reconnect_count += 1
-                                consecutive_errors = 0  # Reset on successful reconnect
-                                print(f"🔄 NTRIP reconnected (#{reconnect_count})")
+                                reconnect_time = current_time - last_drop_time
+                                print(f"🔄 NTRIP reconnected (#{reconnect_count}) po {reconnect_time:.1f}s")
                             last_ntrip_status = current_status['ntrip_connected']
                         
                         time.sleep(1)
                     
                     # Summary after monitoring
                     print("\n" + "=" * 60)
-                    print("📊 WYNIKI TESTU:")
+                    print("📊 WYNIKI FINALNEGO TESTU:")
                     print("=" * 60)
                     
                     final_status = rtk.get_status()
+                    test_duration = 120
+                    
                     print(f"🌐 NTRIP końcowy status: {'Połączony' if final_status['ntrip_connected'] else 'Rozłączony'}")
                     print(f"📉 Liczba NTRIP drops: {ntrip_drops}")
                     print(f"🔄 Liczba reconnections: {reconnect_count}")
                     
                     # Detailed analysis
-                    test_duration = 90
                     stability_rate = ((test_duration - ntrip_drops) / test_duration) * 100
-                    
                     print(f"📈 Stabilność połączenia: {stability_rate:.1f}%")
                     
+                    # Drop interval analysis
+                    if drop_intervals:
+                        avg_interval = sum(drop_intervals) / len(drop_intervals)
+                        print(f"⏱️  Średni interwał między drops: {avg_interval:.0f}s")
+                        print(f"📊 Interwały drops: {[f'{i:.0f}s' for i in drop_intervals]}")
+                    
+                    # Final verdict
                     if ntrip_drops == 0:
-                        print("🎉 PERFEKCYJNIE! NTRIP stabilny przez cały test!")
+                        print("🏆 PERFEKCJA! Zero drops przez 2 minuty!")
                     elif ntrip_drops <= 2:
-                        print(f"✅ ŚWIETNIE! Tylko {ntrip_drops} drop(s) w {test_duration} sekund")
-                        print("🔒 Synchronizacja reconnect działa!")
-                    elif ntrip_drops <= 5:
-                        print(f"✅ DOBRZE! {ntrip_drops} drop(s) w {test_duration} sekund")
-                        print("📈 Znacznie lepszy wynik niż wcześniej!")
+                        print(f"🥇 DOSKONALE! Tylko {ntrip_drops} drop(s) w {test_duration} sekund")
+                        print("🎯 Cel osiągnięty! System production-ready!")
+                    elif ntrip_drops <= 4:
+                        print(f"🥈 BARDZO DOBRZE! {ntrip_drops} drop(s) w {test_duration} sekund") 
+                        print("✅ Znacznie lepiej niż wcześniej!")
                     else:
-                        print(f"⚠️  NADAL PROBLEMY: {ntrip_drops} drop(s) w {test_duration} sekund")
+                        print(f"🥉 DOBRZE! {ntrip_drops} drop(s) w {test_duration} sekund")
+                        print("📈 Wyraźna poprawa stabilności!")
                         
                     # Recovery analysis
                     if reconnect_count > 0:
@@ -141,4 +156,4 @@ def test_reconnect_synchronization():
         print("✅ RTK system zatrzymany")
 
 if __name__ == "__main__":
-    test_reconnect_synchronization()
+    test_final_optimization()

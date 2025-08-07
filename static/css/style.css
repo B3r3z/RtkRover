@@ -44,7 +44,47 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    position: relative;
 }
+
+.rtk-fix-badge {
+    background-color: #28a745;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: bold;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    margin-left: 0.5rem;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+.connection-status {
+    display: flex;
+    gap: 1rem;
+}
+
+.connection-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+}
+
+.connection-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #666;
+}
+
+.connection-dot.connected { background-color: #28a745; }
+.connection-dot.disconnected { background-color: #dc3545; }
 
 .status-dot {
     width: 12px;
@@ -116,6 +156,37 @@ body {
 .info-row span:last-child {
     font-family: 'Courier New', monospace;
     color: #333;
+}
+
+/* RTK Status specific styles */
+.rtk-status-value {
+    font-weight: bold;
+}
+
+.rtk-status-value.rtk-fixed {
+    color: #28a745;
+}
+
+.rtk-status-value.rtk-float {
+    color: #ffc107;
+}
+
+.rtk-status-value.single {
+    color: #fd7e14;
+}
+
+.rtk-status-value.no-fix {
+    color: #dc3545;
+}
+
+.connection-status-text.connected {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.connection-status-text.disconnected {
+    color: #dc3545;
+    font-weight: bold;
 }
 
 /* Leaflet customizations */

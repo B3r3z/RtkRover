@@ -496,7 +496,7 @@ class RTKManager:
                         continue
                 
                 # Wait between uploads - ASG-EUPOS może preferować rzadsze GGA
-                time.sleep(10)  # Zwiększone z 1 do 10 sekund
+                time.sleep(15)  # Zwiększone z 10 do 15 sekund dla większej stabilności
                 
                 # Send GGA tylko jeśli mamy realną pozycję (nie wysyłaj dummy GGA)
                 if self.current_position:

@@ -20,9 +20,20 @@
                 <div id="rtk-status" class="status-indicator">
                     <span class="status-dot" id="status-dot"></span>
                     <span id="status-text">Connecting...</span>
+                    <span class="rtk-fix-badge" id="rtk-fix-badge" style="display: none;">RTK FIXED</span>
                 </div>
                 <div class="coords-display">
                     <span id="coordinates">---.------ , ---.------</span>
+                </div>
+                <div class="connection-status">
+                    <div class="connection-item">
+                        <span class="connection-dot" id="gps-dot"></span>
+                        <span>GPS</span>
+                    </div>
+                    <div class="connection-item">
+                        <span class="connection-dot" id="ntrip-dot"></span>
+                        <span>NTRIP</span>
+                    </div>
                 </div>
             </div>
         </header>
@@ -34,6 +45,26 @@
 
         <!-- Info Panel -->
         <div class="info-panel">
+            <div class="info-section">
+                <h3>RTK Status</h3>
+                <div class="info-row">
+                    <span>Fix Status:</span>
+                    <span id="rtk-fix-status" class="rtk-status-value">--</span>
+                </div>
+                <div class="info-row">
+                    <span>GPS Connection:</span>
+                    <span id="gps-status" class="connection-status-text">--</span>
+                </div>
+                <div class="info-row">
+                    <span>NTRIP Connection:</span>
+                    <span id="ntrip-status" class="connection-status-text">--</span>
+                </div>
+                <div class="info-row">
+                    <span>System Status:</span>
+                    <span id="system-status">--</span>
+                </div>
+            </div>
+            
             <div class="info-section">
                 <h3>GPS Info</h3>
                 <div class="info-row">

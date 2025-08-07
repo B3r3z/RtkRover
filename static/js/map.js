@@ -179,6 +179,9 @@ class RTKMowerMap {
         document.getElementById('heading').textContent = position.heading ? 
             `${position.heading.toFixed(0)}°` : '--°';
         
+        // Update RTK status in info panel
+        this.updateRTKStatus(position.rtk_status);
+        
         // Update status indicator
         this.updateStatusIndicator(this.getStatusClass(position.rtk_status), position.rtk_status);
         
@@ -195,8 +198,68 @@ class RTKMowerMap {
     }
     
     updateSystemStatus(status) {
-        // Additional system status info could be displayed here
-        console.log('System status:', status);
+        // Update connection indicators
+        const gpsStatus = status.gps_connected;
+        const ntripStatus = status.ntrip_connected;
+        
+        // Update connection dots in header
+        this.updateConnectionDot('gps-dot', gpsStatus);
+        this.updateConnectionDot('ntrip-dot', ntripStatus);
+        
+        // Update connection status text in info panel
+        document.getElementById('gps-status').textContent = gpsStatus ? 'Connected' : 'Disconnected';
+        document.getElementById('gps-status').className = `connection-status-text ${gpsStatus ? 'connected' : 'disconnected'}`;
+        
+        document.getElementById('ntrip-status').textContent = ntripStatus ? 'Connected' : 'Disconnected';
+        document.getElementById('ntrip-status').className = `connection-status-text ${ntripStatus ? 'connected' : 'disconnected'}`;
+        
+        // Update system status
+        document.getElementById('system-status').textContent = status.system_mode || status.rtk_status || 'Unknown';
+        
+        console.log('System status updated:', status);
+    }
+    
+    updateConnectionDot(elementId, isConnected) {
+        const dot = document.getElementById(elementId);
+        if (dot) {
+            dot.className = `connection-dot ${isConnected ? 'connected' : 'disconnected'}`;
+        }
+    }
+    
+    updateRTKStatus(rtkStatus) {
+        const statusElement = document.getElementById('rtk-fix-status');
+        const badgeElement = document.getElementById('rtk-fix-badge');
+        
+        if (statusElement) {
+            statusElement.textContent = rtkStatus || '--';
+            statusElement.className = `rtk-status-value ${this.getRTKStatusClass(rtkStatus)}`;
+        }
+        
+        // Show/hide RTK Fixed badge
+        if (badgeElement) {
+            if (rtkStatus === 'RTK Fixed') {
+                badgeElement.style.display = 'inline-block';
+                badgeElement.textContent = '🎯 RTK FIXED';
+            } else if (rtkStatus === 'RTK Float') {
+                badgeElement.style.display = 'inline-block';
+                badgeElement.textContent = '📍 RTK FLOAT';
+                badgeElement.style.backgroundColor = '#ffc107';
+            } else {
+                badgeElement.style.display = 'none';
+            }
+        }
+    }
+    
+    getRTKStatusClass(rtkStatus) {
+        const statusClassMap = {
+            'RTK Fixed': 'rtk-fixed',
+            'RTK Float': 'rtk-float',
+            'DGPS': 'single',
+            'Single': 'single',
+            'No Fix': 'no-fix'
+        };
+        
+        return statusClassMap[rtkStatus] || 'no-fix';
     }
     
     updateStatusIndicator(statusClass, statusText) {
