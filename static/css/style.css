@@ -189,6 +189,53 @@ body {
     font-weight: bold;
 }
 
+/* HDOP and Signal Quality styles */
+.hdop-value.good {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.hdop-value.fair {
+    color: #ffc107;
+    font-weight: bold;
+}
+
+.hdop-value.poor {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.hdop-warning {
+    color: #dc3545;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+    animation: blink 1.5s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.5; }
+}
+
+.signal-quality.excellent {
+    color: #28a745;
+    font-weight: bold;
+}
+
+.signal-quality.good {
+    color: #28a745;
+}
+
+.signal-quality.fair {
+    color: #ffc107;
+    font-weight: bold;
+}
+
+.signal-quality.poor {
+    color: #dc3545;
+    font-weight: bold;
+}
+
 /* Leaflet customizations */
 .leaflet-popup-content {
     margin: 8px 12px;

@@ -171,9 +171,38 @@ class RTKMowerMap {
         document.getElementById('coordinates').textContent = 
             `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}`;
         
-        // Update GPS info
+        // Update GPS info with signal quality analysis
         document.getElementById('satellites').textContent = position.satellites || '--';
-        document.getElementById('hdop').textContent = position.hdop ? position.hdop.toFixed(1) : '--';
+        
+        const hdop = position.hdop;
+        const hdopElement = document.getElementById('hdop');
+        const hdopWarning = document.getElementById('hdop-warning');
+        
+        if (hdop) {
+            hdopElement.textContent = hdop.toFixed(1);
+            
+            // Color-code HDOP values
+            hdopElement.className = 'hdop-value';
+            if (hdop <= 2.0) {
+                hdopElement.classList.add('good');
+                hdopWarning.style.display = 'none';
+            } else if (hdop <= 5.0) {
+                hdopElement.classList.add('fair');
+                hdopWarning.style.display = 'none';
+            } else {
+                hdopElement.classList.add('poor');
+                hdopWarning.style.display = 'inline';
+                hdopWarning.textContent = '⚠️ Poor signal';
+            }
+        } else {
+            hdopElement.textContent = '--';
+            hdopElement.className = 'hdop-value';
+            hdopWarning.style.display = 'none';
+        }
+        
+        // Update signal quality assessment
+        this.updateSignalQuality(position.satellites, hdop);
+        
         document.getElementById('speed').textContent = position.speed_knots ? 
             `${position.speed_knots.toFixed(1)} knots` : '-- knots';
         document.getElementById('heading').textContent = position.heading ? 
@@ -260,6 +289,47 @@ class RTKMowerMap {
         };
         
         return statusClassMap[rtkStatus] || 'no-fix';
+    }
+    
+    updateSignalQuality(satellites, hdop) {
+        const qualityElement = document.getElementById('signal-quality');
+        
+        if (!satellites || !hdop) {
+            qualityElement.textContent = '--';
+            qualityElement.className = 'signal-quality';
+            return;
+        }
+        
+        let quality, className;
+        
+        // Signal quality assessment based on satellites and HDOP
+        if (satellites >= 12 && hdop <= 2.0) {
+            quality = 'Excellent';
+            className = 'excellent';
+        } else if (satellites >= 8 && hdop <= 3.0) {
+            quality = 'Good';
+            className = 'good';
+        } else if (satellites >= 6 && hdop <= 5.0) {
+            quality = 'Fair';
+            className = 'fair';
+        } else {
+            quality = 'Poor';
+            className = 'poor';
+        }
+        
+        qualityElement.textContent = quality;
+        qualityElement.className = `signal-quality ${className}`;
+        
+        // Add additional info for poor signal
+        if (className === 'poor') {
+            if (hdop > 5.0) {
+                quality += ' (High HDOP)';
+            }
+            if (satellites < 6) {
+                quality += ' (Few sats)';
+            }
+            qualityElement.textContent = quality;
+        }
     }
     
     updateStatusIndicator(statusClass, statusText) {
