@@ -6,7 +6,7 @@ load_dotenv()
 
 # Configuration file for ASG-EUPOS RTK connection
 rtk_config = {
-    "caster": os.getenv("ASG_CASTER", "www.asgeupos.pl"),
+    "caster": os.getenv("ASG_CASTER", "system.asgeupos.pl"),
     "port": int(os.getenv("ASG_PORT", "2101")),
     "mountpoint": os.getenv("ASG_MOUNTPOINT", "NEAR"),  # Auto-select nearest station
     "username": os.getenv("ASG_USERNAME", ""),
@@ -17,12 +17,12 @@ rtk_config = {
 uart_config = {
     "port": "/dev/ttyS0",  # Pi Zero 2W UART port
     "baudrate": 115200,
-    "timeout": 1.0
+    "timeout": 3.0
 }
 
 # GPS tracking settings
 gps_config = {
-    "min_satellites": 4,
+    "min_satellites": 1,
     "rtk_timeout": 30,  # seconds
     "track_interval": 1.0,  # seconds between position logs
 }

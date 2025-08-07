@@ -96,16 +96,53 @@ class RTKManager:
     def _connect_gps(self):
         """Connect to GPS module via serial"""
         try:
-            self.gps_serial = serial.Serial(
-                port=self.uart_config["port"],
-                baudrate=self.uart_config["baudrate"], 
-                timeout=self.uart_config["timeout"]
-            )
+            # Spróbuj kilku prędkości transmisji
+            baudrates = [9600, 38400, 115200]
             
-            # Initialize NMEA reader
-            self.nmea_reader = NMEAReader(self.gps_serial)
+            for baudrate in baudrates:
+                try:
+                    logger.info(f"Trying GPS connection at {baudrate} baud...")
+                    
+                    self.gps_serial = serial.Serial(
+                        port=self.uart_config["port"],
+                        baudrate=baudrate,
+                        timeout=self.uart_config["timeout"],
+                        bytesize=self.uart_config.get("bytesize", 8),
+                        parity=self.uart_config.get("parity", "N"), 
+                        stopbits=self.uart_config.get("stopbits", 1),
+                        xonxoff=self.uart_config.get("xonxoff", False),
+                        rtscts=self.uart_config.get("rtscts", False),
+                        dsrdtr=self.uart_config.get("dsrdtr", False)
+                    )
+                    
+                    # Test communication for 2 seconds
+                    time.sleep(2)
+                    if self.gps_serial.in_waiting > 0:
+                        test_data = self.gps_serial.read(100)
+                        if b'$' in test_data:  # NMEA sentence start
+                            logger.info(f"GPS communication successful at {baudrate} baud")
+                            break
+                    
+                    # Close and try next baudrate
+                    self.gps_serial.close()
+                    self.gps_serial = None
+                    
+                except Exception as e:
+                    logger.debug(f"Failed at {baudrate} baud: {e}")
+                    if self.gps_serial:
+                        try:
+                            self.gps_serial.close()
+                        except:
+                            pass
+                        self.gps_serial = None
+                    continue
             
-            logger.info(f"Connected to GPS on {self.uart_config['port']} at {self.uart_config['baudrate']} baud")
+            if self.gps_serial:
+                # Initialize NMEA reader
+                self.nmea_reader = NMEAReader(self.gps_serial)
+                logger.info(f"Connected to GPS on {self.uart_config['port']} at {baudrate} baud")
+            else:
+                raise Exception("No working baudrate found")
             
         except Exception as e:
             logger.warning(f"Failed to connect to GPS: {e}")
