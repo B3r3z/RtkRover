@@ -343,8 +343,21 @@ class RTKManager:
         """Receive RTCM corrections and forward to GPS - based on Waveshare"""
         logger.info("RTCM forwarding loop started")
         
-        while self.running and self.ntrip_socket:
+        reconnect_attempts = 0
+        max_reconnect_attempts = 3
+        
+        while self.running and reconnect_attempts < max_reconnect_attempts:
             try:
+                if not self.ntrip_socket:
+                    logger.info("NTRIP socket lost, attempting reconnection...")
+                    if self._reconnect_ntrip():
+                        reconnect_attempts = 0  # Reset on successful reconnect
+                    else:
+                        reconnect_attempts += 1
+                        logger.warning(f"NTRIP reconnection failed ({reconnect_attempts}/{max_reconnect_attempts})")
+                        time.sleep(5)  # Wait before retry
+                        continue
+                
                 # Receive RTCM data from NTRIP server
                 rtcm_data = self.ntrip_socket.recv(1024)
                 
@@ -357,9 +370,28 @@ class RTKManager:
                 continue
             except Exception as e:
                 logger.error(f"RTCM loop error: {e}")
-                break
+                # Mark socket as broken so reconnection can be attempted
+                self._cleanup_ntrip_socket()
+                time.sleep(1)
                 
         logger.info("RTCM forwarding loop ended")
+    
+    def _reconnect_ntrip(self):
+        """Attempt to reconnect to NTRIP server"""
+        try:
+            logger.info("Attempting NTRIP reconnection...")
+            self._cleanup_ntrip_socket()
+            
+            if self._connect_ntrip():
+                logger.info("NTRIP reconnection successful")
+                return True
+            else:
+                logger.warning("NTRIP reconnection failed")
+                return False
+                
+        except Exception as e:
+            logger.error(f"NTRIP reconnection error: {e}")
+            return False
     
     def _nmea_loop(self):
         """Read and process NMEA sentences - based on Waveshare pynmeagps approach"""
@@ -421,38 +453,87 @@ class RTKManager:
         logger.info("GGA upload loop started")
         
         failed_uploads = 0
-        max_failed_uploads = 5
+        max_failed_uploads = 3
+        reconnect_attempts = 0
+        max_reconnect_attempts = 3
         
-        while self.running and self.ntrip_socket and failed_uploads < max_failed_uploads:
+        # Send initial GGA to establish session
+        self._send_initial_gga()
+        
+        while self.running and reconnect_attempts < max_reconnect_attempts:
             try:
+                # Check if NTRIP connection exists
+                if not self.ntrip_socket:
+                    logger.info("NTRIP socket lost in GGA loop, attempting reconnection...")
+                    if self._reconnect_ntrip():
+                        reconnect_attempts = 0  # Reset on successful reconnect
+                        failed_uploads = 0
+                    else:
+                        reconnect_attempts += 1
+                        logger.warning(f"NTRIP reconnection failed in GGA loop ({reconnect_attempts}/{max_reconnect_attempts})")
+                        time.sleep(5)  # Wait before retry
+                        continue
+                
                 # Wait 1 second between uploads (like Waveshare 10 * 100ms)
                 time.sleep(1)
                 
-                # Double check connection is still valid
-                if not self.ntrip_socket:
-                    logger.info("NTRIP connection lost, stopping GGA upload")
-                    break
-                
-                if self.current_position:
-                    gga_sentence = self._build_gga_sentence()
-                    if gga_sentence:
-                        # Upload GGA to NTRIP server
-                        upload_success = self._upload_gga(gga_sentence)
-                        if upload_success is False:
-                            # Broken pipe or similar fatal error
-                            break
+                # Send GGA even if no current position (for keep-alive)
+                gga_sentence = self._build_gga_sentence()
+                if gga_sentence:
+                    # Upload GGA to NTRIP server
+                    upload_success = self._upload_gga(gga_sentence)
+                    if upload_success:
                         failed_uploads = 0  # Reset counter on success
+                    else:
+                        failed_uploads += 1
+                        if failed_uploads >= max_failed_uploads:
+                            logger.warning("Too many GGA upload failures, marking connection as lost")
+                            self._cleanup_ntrip_socket()
+                            failed_uploads = 0
+                else:
+                    # Send dummy GGA for keep-alive if no real position
+                    dummy_gga = self._build_dummy_gga()
+                    if dummy_gga:
+                        upload_success = self._upload_gga(dummy_gga)
+                        if not upload_success:
+                            failed_uploads += 1
                         
             except Exception as e:
                 failed_uploads += 1
-                logger.error(f"GGA upload loop error ({failed_uploads}/{max_failed_uploads}): {e}")
-                
-                # If too many failures or connection lost, stop
-                if failed_uploads >= max_failed_uploads or not self.ntrip_socket:
-                    logger.warning("Too many GGA upload failures, stopping loop")
-                    break
+                logger.error(f"GGA upload loop error: {e}")
+                time.sleep(1)
                 
         logger.info("GGA upload loop ended")
+    
+    def _send_initial_gga(self):
+        """Send initial GGA to establish NTRIP session"""
+        try:
+            # Use last known position or default location
+            if self.current_position:
+                gga_sentence = self._build_gga_sentence()
+            else:
+                # Use approximate Poland center for initial GGA
+                gga_sentence = "$GNGGA,120000,5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00"
+            
+            if gga_sentence and self.ntrip_socket:
+                self._upload_gga(gga_sentence)
+                logger.debug("Initial GGA sent to establish NTRIP session")
+                
+        except Exception as e:
+            logger.warning(f"Failed to send initial GGA: {e}")
+    
+    def _build_dummy_gga(self):
+        """Build dummy GGA for keep-alive when no position available"""
+        try:
+            # Use approximate location for keep-alive
+            # Poland center coordinates
+            current_time = time.strftime('%H%M%S')
+            dummy_gga = f"$GNGGA,{current_time},5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00"
+            return dummy_gga
+            
+        except Exception as e:
+            logger.error(f"Error building dummy GGA: {e}")
+            return None
     
     def _process_nmea_message(self, raw_data, parsed_data):
         """Process NMEA message and extract position data"""
@@ -551,14 +632,12 @@ class RTKManager:
                 
         except Exception as e:
             logger.error(f"Error uploading GGA: {e}")
-            # If socket error, mark it as disconnected and stop trying
+            # If socket error, mark it as disconnected
             if "Broken pipe" in str(e) or "Connection" in str(e) or "timed out" in str(e):
-                logger.warning("NTRIP connection lost - cleaning up socket")
+                logger.warning("NTRIP connection lost during GGA upload - marking for reconnection")
                 self._cleanup_ntrip_socket()
-                # Signal to stop GGA upload loop
-                if "Broken pipe" in str(e):
-                    logger.info("Stopping GGA uploads due to broken connection")
-                    return False
+                # Don't immediately return False - let reconnection logic handle it
+                return False
             return False
     
     def stop(self):
