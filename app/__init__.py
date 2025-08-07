@@ -39,9 +39,19 @@ def _init_rtk_system():
     """Initialize RTK system in background thread"""
     global rtk_manager, rtk_thread
     
+    # Check if already initialized
+    if rtk_manager is not None:
+        logging.info("RTK Manager already initialized, skipping...")
+        return
+    
+    # Check if thread is already running
+    if rtk_thread is not None and rtk_thread.is_alive():
+        logging.info("RTK initialization thread already running, skipping...")
+        return
+    
     def rtk_worker():
         global rtk_manager
-        rtk_manager = RTKManager()
+        rtk_manager = RTKManager.get_instance()  # Use singleton
         
         if rtk_manager.initialize():
             logging.info("RTK Manager initialized successfully")

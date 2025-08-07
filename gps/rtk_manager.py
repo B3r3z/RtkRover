@@ -10,9 +10,14 @@ import threading
 import time
 import logging
 import sys
+import os
 from pynmeagps import NMEAReader
 
 logger = logging.getLogger(__name__)
+
+# Global instance control
+_instance = None
+_instance_lock = threading.Lock()
 
 class RTKManager:
     def __init__(self):
@@ -44,9 +49,42 @@ class RTKManager:
         self._demo_mode = False
         self._demo_thread = None
         
+    @classmethod
+    def get_instance(cls):
+        """Get singleton instance"""
+        global _instance
+        with _instance_lock:
+            if _instance is None:
+                _instance = cls()
+            return _instance
+    
+    def _check_port_available(self, port_path):
+        """Check if serial port is available"""
+        if not os.path.exists(port_path):
+            logger.warning(f"Serial port {port_path} does not exist")
+            return False
+            
+        # Simple availability test - try to open briefly
+        try:
+            test_serial = serial.Serial(port_path, 9600, timeout=0.1)
+            test_serial.close()
+            logger.debug(f"Serial port {port_path} is available")
+            return True
+        except serial.SerialException as e:
+            logger.warning(f"Serial port {port_path} not available: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking port {port_path}: {e}")
+            return False
+        
     def initialize(self):
         """Initialize RTK system"""
         try:
+            # Check if already initialized
+            if self.running:
+                logger.info("RTK Manager already running, skipping initialization...")
+                return True
+                
             logger.info("RTK Manager initializing...")
             return True
         except Exception as e:
@@ -94,9 +132,13 @@ class RTKManager:
             return True
     
     def _connect_gps(self):
-        """Connect to GPS module via serial"""
+        """Connect to GPS with auto-baudrate detection"""
         try:
-            # Spróbuj kilku prędkości transmisji
+            # Check if port is available
+            if not self._check_port_available(self.uart_config["port"]):
+                raise Exception(f"Serial port {self.uart_config['port']} not available or already in use")
+            
+            # Try different baudrates
             baudrates = [9600, 38400, 115200]
             
             for baudrate in baudrates:
@@ -140,7 +182,7 @@ class RTKManager:
             if self.gps_serial:
                 # Initialize NMEA reader
                 self.nmea_reader = NMEAReader(self.gps_serial)
-                logger.info(f"Connected to GPS on {self.uart_config['port']} at {baudrate} baud")
+                logger.info(f"Connected to GPS on {self.uart_config['port']} at {self.gps_serial.baudrate} baud")
             else:
                 raise Exception("No working baudrate found")
             
