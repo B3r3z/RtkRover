@@ -10,14 +10,9 @@ import threading
 import time
 import logging
 import sys
-import os
 from pynmeagps import NMEAReader
 
 logger = logging.getLogger(__name__)
-
-# Global instance control
-_instance = None
-_instance_lock = threading.Lock()
 
 class RTKManager:
     def __init__(self):
@@ -49,42 +44,9 @@ class RTKManager:
         self._demo_mode = False
         self._demo_thread = None
         
-    @classmethod
-    def get_instance(cls):
-        """Get singleton instance"""
-        global _instance
-        with _instance_lock:
-            if _instance is None:
-                _instance = cls()
-            return _instance
-    
-    def _check_port_available(self, port_path):
-        """Check if serial port is available"""
-        if not os.path.exists(port_path):
-            logger.warning(f"Serial port {port_path} does not exist")
-            return False
-            
-        # Simple availability test - try to open briefly
-        try:
-            test_serial = serial.Serial(port_path, 9600, timeout=0.1)
-            test_serial.close()
-            logger.debug(f"Serial port {port_path} is available")
-            return True
-        except serial.SerialException as e:
-            logger.warning(f"Serial port {port_path} not available: {e}")
-            return False
-        except Exception as e:
-            logger.warning(f"Error checking port {port_path}: {e}")
-            return False
-        
     def initialize(self):
         """Initialize RTK system"""
         try:
-            # Check if already initialized
-            if self.running:
-                logger.info("RTK Manager already running, skipping initialization...")
-                return True
-                
             logger.info("RTK Manager initializing...")
             return True
         except Exception as e:
@@ -132,71 +94,78 @@ class RTKManager:
             return True
     
     def _connect_gps(self):
-        """Connect to GPS with auto-baudrate detection"""
+        """Connect to GPS module via serial with auto baudrate detection"""
+        # Common GPS baudrates to try (based on Waveshare documentation)
+        baudrates_to_try = [115200, 38400, 9600]  # LC29H default is 115200
+        
+        for baudrate in baudrates_to_try:
+            try:
+                logger.info(f"Trying GPS connection at {baudrate} baud...")
+                
+                # Try to open serial connection
+                test_serial = serial.Serial(
+                    port=self.uart_config["port"],
+                    baudrate=baudrate,
+                    timeout=2.0  # Shorter timeout for testing
+                )
+                
+                # Test if we get valid NMEA data
+                if self._test_gps_communication(test_serial):
+                    # Connection successful
+                    self.gps_serial = test_serial
+                    self.uart_config["baudrate"] = baudrate  # Update config
+                    
+                    # Initialize NMEA reader
+                    self.nmea_reader = NMEAReader(self.gps_serial)
+                    
+                    logger.info(f"GPS communication successful at {baudrate} baud")
+                    logger.info(f"Connected to GPS on {self.uart_config['port']} at {baudrate} baud")
+                    return
+                else:
+                    # Close failed connection
+                    test_serial.close()
+                    
+            except Exception as e:
+                logger.debug(f"Failed at {baudrate} baud: {e}")
+                continue
+        
+        # No working baudrate found
+        logger.warning("Failed to connect to GPS: No working baudrate found")
+        logger.info("Starting in DEMO mode - no physical GPS hardware")
+        
+        # Set demo mode
+        self.gps_serial = None
+        self.nmea_reader = None
+        self._demo_mode = True
+        
+        # Start demo position simulation
+        self._start_demo_simulation()
+    
+    def _test_gps_communication(self, serial_connection):
+        """Test if GPS communication works at given baudrate"""
         try:
-            # Check if port is available
-            if not self._check_port_available(self.uart_config["port"]):
-                raise Exception(f"Serial port {self.uart_config['port']} not available or already in use")
+            # Clear input buffer
+            serial_connection.reset_input_buffer()
             
-            # Try different baudrates
-            baudrates = [9600, 38400, 115200]
+            # Wait up to 3 seconds for NMEA data
+            start_time = time.time()
+            while time.time() - start_time < 3.0:
+                if serial_connection.in_waiting > 0:
+                    try:
+                        line = serial_connection.readline().decode('ascii', errors='ignore').strip()
+                        # Look for valid NMEA sentences
+                        if line.startswith('$') and ('GGA' in line or 'RMC' in line or 'GSV' in line):
+                            logger.debug(f"Valid NMEA received: {line[:50]}...")
+                            return True
+                    except:
+                        continue
+                time.sleep(0.1)
             
-            for baudrate in baudrates:
-                try:
-                    logger.info(f"Trying GPS connection at {baudrate} baud...")
-                    
-                    self.gps_serial = serial.Serial(
-                        port=self.uart_config["port"],
-                        baudrate=baudrate,
-                        timeout=self.uart_config["timeout"],
-                        bytesize=self.uart_config.get("bytesize", 8),
-                        parity=self.uart_config.get("parity", "N"), 
-                        stopbits=self.uart_config.get("stopbits", 1),
-                        xonxoff=self.uart_config.get("xonxoff", False),
-                        rtscts=self.uart_config.get("rtscts", False),
-                        dsrdtr=self.uart_config.get("dsrdtr", False)
-                    )
-                    
-                    # Test communication for 2 seconds
-                    time.sleep(2)
-                    if self.gps_serial.in_waiting > 0:
-                        test_data = self.gps_serial.read(100)
-                        if b'$' in test_data:  # NMEA sentence start
-                            logger.info(f"GPS communication successful at {baudrate} baud")
-                            break
-                    
-                    # Close and try next baudrate
-                    self.gps_serial.close()
-                    self.gps_serial = None
-                    
-                except Exception as e:
-                    logger.debug(f"Failed at {baudrate} baud: {e}")
-                    if self.gps_serial:
-                        try:
-                            self.gps_serial.close()
-                        except:
-                            pass
-                        self.gps_serial = None
-                    continue
-            
-            if self.gps_serial:
-                # Initialize NMEA reader
-                self.nmea_reader = NMEAReader(self.gps_serial)
-                logger.info(f"Connected to GPS on {self.uart_config['port']} at {self.gps_serial.baudrate} baud")
-            else:
-                raise Exception("No working baudrate found")
+            return False
             
         except Exception as e:
-            logger.warning(f"Failed to connect to GPS: {e}")
-            logger.info("Starting in DEMO mode - no physical GPS hardware")
-            
-            # Set demo mode
-            self.gps_serial = None
-            self.nmea_reader = None
-            self._demo_mode = True
-            
-            # Start demo position simulation
-            self._start_demo_simulation()
+            logger.debug(f"GPS communication test failed: {e}")
+            return False
     
     def _start_demo_simulation(self):
         """Start demo position simulation for testing without hardware"""
@@ -267,7 +236,7 @@ class RTKManager:
         try:
             # Create socket connection
             self.ntrip_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.ntrip_socket.settimeout(15)  # Zwiększone z 10 do 15 sekund
+            self.ntrip_socket.settimeout(10)  # Connection timeout
             
             logger.info(f"Connecting to NTRIP caster {self.ntrip_config['caster']}:{self.ntrip_config['port']}")
             self.ntrip_socket.connect((self.ntrip_config["caster"], self.ntrip_config["port"]))
@@ -281,29 +250,42 @@ class RTKManager:
             logger.debug(f"Sending NTRIP request...")
             self.ntrip_socket.send(request.encode())
             
-            # Check response with longer timeout
+            # Check response
             logger.debug("Waiting for NTRIP response...")
             response = self.ntrip_socket.recv(1024).decode()
             logger.debug(f"NTRIP response: {response}")
             
             if "200 OK" in response:
                 logger.info("NTRIP connection successful")
-                # Set socket to non-blocking for data reception
-                self.ntrip_socket.settimeout(5)
+                # Set socket timeout for data reception
+                self.ntrip_socket.settimeout(3.0)
                 return True
             elif "401" in response:
                 logger.error(f"NTRIP authentication failed: {response}")
+                self._cleanup_ntrip_socket()
                 return False
             elif "404" in response:
                 logger.error(f"NTRIP mountpoint not found: {response}")
+                self._cleanup_ntrip_socket()
                 return False
             else:
                 logger.error(f"NTRIP connection failed: {response}")
+                self._cleanup_ntrip_socket()
                 return False
                 
         except Exception as e:
             logger.error(f"NTRIP connection error: {e}")
+            self._cleanup_ntrip_socket()
             return False
+    
+    def _cleanup_ntrip_socket(self):
+        """Clean up NTRIP socket connection"""
+        if self.ntrip_socket:
+            try:
+                self.ntrip_socket.close()
+            except:
+                pass
+            self.ntrip_socket = None
     
     def _build_ntrip_request(self, auth_b64):
         """Build NTRIP request following Waveshare format"""
@@ -562,25 +544,22 @@ class RTKManager:
                 gga_data = (gga_sentence + "\r\n").encode()
                 self.ntrip_socket.send(gga_data)
                 logger.debug(f"Uploaded GGA: {gga_sentence}")
+                return True
             else:
                 logger.debug("No NTRIP socket available for GGA upload")
+                return False
                 
         except Exception as e:
             logger.error(f"Error uploading GGA: {e}")
             # If socket error, mark it as disconnected and stop trying
             if "Broken pipe" in str(e) or "Connection" in str(e) or "timed out" in str(e):
                 logger.warning("NTRIP connection lost - cleaning up socket")
-                try:
-                    if self.ntrip_socket:
-                        self.ntrip_socket.close()
-                except:
-                    pass
-                self.ntrip_socket = None
-                # Stop the running state to prevent more upload attempts
+                self._cleanup_ntrip_socket()
+                # Signal to stop GGA upload loop
                 if "Broken pipe" in str(e):
                     logger.info("Stopping GGA uploads due to broken connection")
                     return False
-        return True
+            return False
     
     def stop(self):
         """Stop RTK system"""
@@ -602,16 +581,16 @@ class RTKManager:
     
     def _cleanup_connections(self):
         """Clean up all connections"""
-        if self.ntrip_socket:
-            try:
-                self.ntrip_socket.close()
-            except:
-                pass
-            self.ntrip_socket = None
+        logger.debug("Cleaning up connections...")
+        
+        # Clean up NTRIP connection
+        self._cleanup_ntrip_socket()
             
+        # Clean up GPS serial connection
         if self.gps_serial:
             try:
                 self.gps_serial.close()
+                logger.debug("GPS serial connection closed")
             except:
                 pass
             self.gps_serial = None

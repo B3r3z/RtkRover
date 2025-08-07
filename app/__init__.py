@@ -39,19 +39,14 @@ def _init_rtk_system():
     """Initialize RTK system in background thread"""
     global rtk_manager, rtk_thread
     
-    # Check if already initialized
+    # Avoid double initialization in Flask debug mode
     if rtk_manager is not None:
-        logging.info("RTK Manager already initialized, skipping...")
-        return
-    
-    # Check if thread is already running
-    if rtk_thread is not None and rtk_thread.is_alive():
-        logging.info("RTK initialization thread already running, skipping...")
+        logging.info("RTK system already initialized, skipping...")
         return
     
     def rtk_worker():
         global rtk_manager
-        rtk_manager = RTKManager.get_instance()  # Use singleton
+        rtk_manager = RTKManager()
         
         if rtk_manager.initialize():
             logging.info("RTK Manager initialized successfully")
@@ -89,24 +84,24 @@ def _register_routes(app):
         
         position = rtk_manager.get_current_position()
         
-        if position:
+        if position and position.get("lat") is not None and position.get("lon") is not None:
             return jsonify({
-                "lat": position.lat,
-                "lon": position.lon,
-                "altitude": position.altitude,
-                "rtk_status": position.rtk_status,
-                "satellites": position.satellites,
-                "hdop": position.hdop,
-                "speed_knots": position.speed_knots,
-                "heading": position.heading,
-                "timestamp": position.timestamp
+                "lat": position.get("lat"),
+                "lon": position.get("lon"),
+                "altitude": position.get("altitude", 0),
+                "rtk_status": position.get("rtk_status", "Unknown"),
+                "satellites": position.get("satellites", 0),
+                "hdop": position.get("hdop", 0.0),
+                "speed_knots": position.get("speed_knots"),
+                "heading": position.get("heading"),
+                "timestamp": position.get("timestamp")
             })
         else:
             return jsonify({
                 "error": "No GPS position available",
                 "lat": None,
                 "lon": None,
-                "rtk_status": "No Fix",
+                "rtk_status": rtk_manager.rtk_status if hasattr(rtk_manager, 'rtk_status') else "No Fix",
                 "satellites": 0,
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }), 404
