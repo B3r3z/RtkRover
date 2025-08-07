@@ -44,6 +44,10 @@ class RTKManager:
         self._demo_mode = False
         self._demo_thread = None
         
+        # Reconnection synchronization
+        self._reconnect_lock = threading.Lock()
+        self._reconnecting = False
+        
     def initialize(self):
         """Initialize RTK system"""
         try:
@@ -352,6 +356,8 @@ class RTKManager:
         while self.running and reconnect_attempts < max_reconnect_attempts:
             try:
                 if not self.ntrip_socket:
+                    # Wait a moment before attempting reconnection to avoid rapid retries
+                    time.sleep(1)
                     logger.info("NTRIP socket lost, attempting reconnection...")
                     if self._reconnect_ntrip():
                         reconnect_attempts = 0  # Reset on successful reconnect
@@ -375,26 +381,36 @@ class RTKManager:
                 logger.error(f"RTCM loop error: {e}")
                 # Mark socket as broken so reconnection can be attempted
                 self._cleanup_ntrip_socket()
+                # Don't attempt immediate reconnect - let main logic handle it
                 time.sleep(1)
                 
         logger.info("RTCM forwarding loop ended")
     
     def _reconnect_ntrip(self):
-        """Attempt to reconnect to NTRIP server"""
-        try:
-            logger.info("Attempting NTRIP reconnection...")
-            self._cleanup_ntrip_socket()
-            
-            if self._connect_ntrip():
-                logger.info("NTRIP reconnection successful")
-                return True
-            else:
-                logger.warning("NTRIP reconnection failed")
-                return False
+        """Attempt to reconnect to NTRIP server with synchronization"""
+        with self._reconnect_lock:
+            if self._reconnecting:
+                logger.debug("Reconnection already in progress, waiting...")
+                return self.ntrip_socket is not None
                 
-        except Exception as e:
-            logger.error(f"NTRIP reconnection error: {e}")
-            return False
+            self._reconnecting = True
+            
+            try:
+                logger.info("Attempting NTRIP reconnection...")
+                self._cleanup_ntrip_socket()
+                
+                if self._connect_ntrip():
+                    logger.info("NTRIP reconnection successful")
+                    return True
+                else:
+                    logger.warning("NTRIP reconnection failed")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"NTRIP reconnection error: {e}")
+                return False
+            finally:
+                self._reconnecting = False
     
     def _nmea_loop(self):
         """Read and process NMEA sentences - based on Waveshare pynmeagps approach"""
@@ -467,6 +483,8 @@ class RTKManager:
             try:
                 # Check if NTRIP connection exists
                 if not self.ntrip_socket:
+                    # Wait a moment before attempting reconnection to avoid rapid retries
+                    time.sleep(1)
                     logger.info("NTRIP socket lost in GGA loop, attempting reconnection...")
                     if self._reconnect_ntrip():
                         reconnect_attempts = 0  # Reset on successful reconnect
@@ -641,7 +659,7 @@ class RTKManager:
             if "Broken pipe" in str(e) or "Connection" in str(e) or "timed out" in str(e):
                 logger.warning("NTRIP connection lost during GGA upload - marking for reconnection")
                 self._cleanup_ntrip_socket()
-                # Don't immediately return False - let reconnection logic handle it
+                # Don't immediately return False - let connection check in loop handle it
                 return False
             return False
     
