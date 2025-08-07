@@ -373,6 +373,21 @@ class RTKManager:
                 if rtcm_data and self.gps_serial:
                     # Forward directly to GPS module (like Waveshare C code)
                     self.gps_serial.write(rtcm_data)
+                    
+                    # Track RTCM data for diagnostics
+                    if not hasattr(self, '_rtcm_bytes_received'):
+                        self._rtcm_bytes_received = 0
+                        self._last_rtcm_log_time = time.time()
+                    
+                    self._rtcm_bytes_received += len(rtcm_data)
+                    
+                    # Log RTCM statistics every 60 seconds
+                    current_time = time.time()
+                    if (current_time - self._last_rtcm_log_time) > 60:
+                        logger.info(f"RTCM data: {self._rtcm_bytes_received} bytes received in last 60s")
+                        self._rtcm_bytes_received = 0
+                        self._last_rtcm_log_time = current_time
+                    
                     logger.debug(f"Forwarded {len(rtcm_data)} bytes of RTCM to GPS")
                     
             except socket.timeout:
@@ -495,8 +510,9 @@ class RTKManager:
                         time.sleep(5)  # Wait before retry
                         continue
                 
-                # Wait between uploads - ASG-EUPOS może preferować rzadsze GGA
-                time.sleep(15)  # Zwiększone z 10 do 15 sekund dla większej stabilności
+                # Wait between uploads - adaptive timing based on signal quality
+                gga_interval = self._get_adaptive_gga_interval()
+                time.sleep(gga_interval)
                 
                 # Send GGA tylko jeśli mamy realną pozycję (nie wysyłaj dummy GGA)
                 if self.current_position:
@@ -523,6 +539,27 @@ class RTKManager:
                 
         logger.info("GGA upload loop ended")
     
+    def _get_adaptive_gga_interval(self):
+        """Get adaptive GGA upload interval based on signal quality and RTK status"""
+        if not self.current_position:
+            return 15  # Default interval when no position
+        
+        hdop = self.current_position.get("hdop", 10.0)
+        rtk_status = self.current_position.get("rtk_status", "Unknown")
+        satellites = self.current_position.get("satellites", 0)
+        
+        # Adaptive timing based on signal quality and RTK status
+        if rtk_status == "RTK Fixed":
+            return 20  # Longer interval for stable RTK Fixed
+        elif rtk_status == "RTK Float":
+            return 10  # Medium interval for RTK Float
+        elif hdop <= 2.0 and satellites >= 12:
+            return 8   # Shorter interval for excellent signal quality
+        elif hdop <= 3.0 and satellites >= 8:
+            return 12  # Medium interval for good signal quality  
+        else:
+            return 15  # Default interval for poor signal quality
+    
     def _send_initial_gga(self):
         """Send initial GGA to establish NTRIP session"""
         try:
@@ -532,11 +569,13 @@ class RTKManager:
             # Use current position if available
             if self.current_position:
                 gga_sentence = self._build_gga_sentence()
-                logger.debug("Using current GPS position for initial GGA")
+                hdop = self.current_position.get("hdop", 0.0)
+                satellites = self.current_position.get("satellites", 0)
+                logger.info(f"Using current GPS position for initial GGA (HDOP: {hdop:.1f}, Sats: {satellites})")
             else:
                 # Use approximate Poland center for initial GGA
                 gga_sentence = "$GNGGA,120000,5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00"
-                logger.debug("Using default position for initial GGA")
+                logger.info("Using default position for initial GGA")
             
             if gga_sentence and self.ntrip_socket:
                 self._upload_gga(gga_sentence)
@@ -600,6 +639,9 @@ class RTKManager:
                     self.rtk_status = position_data["rtk_status"]
                     logger.info(f"RTK Status: {self.rtk_status}")
                 
+                # Log signal quality warnings
+                self._log_signal_quality_warnings(position_data)
+                
                 # Store current position
                 self.current_position = position_data
                 
@@ -609,6 +651,38 @@ class RTKManager:
                     
         except Exception as e:
             logger.debug(f"Error processing GGA: {e}")
+    
+    def _log_signal_quality_warnings(self, position_data):
+        """Log warnings about poor signal quality that affects RTK performance"""
+        hdop = position_data.get("hdop", 0.0)
+        satellites = position_data.get("satellites", 0)
+        rtk_status = position_data.get("rtk_status", "Unknown")
+        
+        # Track time for periodic warnings (every 30 seconds)
+        if not hasattr(self, '_last_warning_time'):
+            self._last_warning_time = 0
+        
+        current_time = time.time()
+        should_warn = (current_time - self._last_warning_time) > 30
+        
+        if should_warn:
+            # High HDOP warning
+            if hdop > 5.0:
+                logger.warning(f"Poor HDOP: {hdop:.1f} (>5.0) - RTK Fixed unlikely. Check antenna position!")
+                self._last_warning_time = current_time
+            elif hdop > 2.0 and rtk_status == "Single":
+                logger.info(f"Marginal HDOP: {hdop:.1f} (>2.0) - waiting for better satellite geometry for RTK")
+                self._last_warning_time = current_time
+            
+            # Low satellite count warning  
+            if satellites < 8:
+                logger.warning(f"Low satellite count: {satellites} (<8) - may affect RTK performance")
+                self._last_warning_time = current_time
+            
+            # RTK status analysis
+            if rtk_status == "Single" and hdop <= 2.0 and satellites >= 8:
+                logger.info(f"Good signal quality (HDOP:{hdop:.1f}, Sats:{satellites}) but no RTK - check NTRIP corrections")
+                self._last_warning_time = current_time
     
     def _build_gga_sentence(self):
         """Build GGA sentence from current position for NTRIP upload"""
@@ -703,14 +777,46 @@ class RTKManager:
         self.position_callback = callback
     
     def get_status(self):
-        """Get RTK system status"""
-        return {
+        """Get RTK system status with enhanced diagnostics"""
+        status = {
             "rtk_status": self.rtk_status,
             "running": self.running,
             "ntrip_connected": self.ntrip_socket is not None,
             "gps_connected": self.gps_serial is not None,
             "current_position": self.current_position
         }
+        
+        # Add signal quality assessment
+        if self.current_position:
+            hdop = self.current_position.get("hdop", 0.0)
+            satellites = self.current_position.get("satellites", 0)
+            
+            # Signal quality assessment
+            if hdop <= 2.0 and satellites >= 12:
+                status["signal_quality"] = "Excellent"
+            elif hdop <= 3.0 and satellites >= 8:
+                status["signal_quality"] = "Good"
+            elif hdop <= 5.0 and satellites >= 6:
+                status["signal_quality"] = "Fair"
+            else:
+                status["signal_quality"] = "Poor"
+                
+            # RTK readiness assessment
+            if hdop <= 2.0 and satellites >= 8:
+                status["rtk_ready"] = True
+                status["rtk_ready_reason"] = "Signal quality good for RTK"
+            else:
+                status["rtk_ready"] = False
+                if hdop > 2.0:
+                    status["rtk_ready_reason"] = f"HDOP too high: {hdop:.1f} (need <2.0)"
+                elif satellites < 8:
+                    status["rtk_ready_reason"] = f"Too few satellites: {satellites} (need ≥8)"
+        else:
+            status["signal_quality"] = "Unknown"
+            status["rtk_ready"] = False
+            status["rtk_ready_reason"] = "No GPS position available"
+            
+        return status
     
     def get_current_position(self):
         """Get current GPS position"""
