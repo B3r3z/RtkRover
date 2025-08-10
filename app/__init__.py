@@ -239,6 +239,9 @@ def _register_routes(app):
                     "hdop": 0.0,
                     "last_update": None,
                     "system_mode": "Offline",
+                    "rtk_fix_available": False,
+                    "rtk_fix_status": "RTK-FIX Unavailable",
+                    "rtk_fix_color": "red",
                     "error": "RTK system not initialized"
                 }), 503
             
@@ -264,11 +267,13 @@ def _register_routes(app):
             # Add system mode description with enhanced logic
             ntrip_connected = status.get("ntrip_connected", False)
             gps_connected = status.get("gps_connected", False)
-            demo_mode = getattr(rtk_manager, '_demo_mode', False)
             
-            if demo_mode:
-                status["system_mode"] = "Demo Mode"
-            elif ntrip_connected and gps_connected:
+            # Add RTK-FIX status based on NTRIP connection
+            status["rtk_fix_available"] = ntrip_connected
+            status["rtk_fix_status"] = "RTK-FIX Available" if ntrip_connected else "RTK-FIX Unavailable"
+            status["rtk_fix_color"] = "green" if ntrip_connected else "red"
+            
+            if ntrip_connected and gps_connected:
                 status["system_mode"] = "RTK Mode"
             elif gps_connected:
                 status["system_mode"] = "GPS Only"

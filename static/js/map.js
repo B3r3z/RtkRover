@@ -232,23 +232,6 @@ class RTKMowerMap {
             }
         }
     }
-            const response = await fetch('/api/position');
-            const data = await response.json();
-            
-            if (response.ok && data.lat !== null && data.lon !== null) {
-                this.currentPosition = data;
-                this.updateMapPosition(data);
-                this.updateUI(data);
-            } else {
-                console.log('No GPS position available:', data.error);
-                this.updateStatusIndicator('disconnected', data.error || 'No GPS signal');
-            }
-        } catch (error) {
-            console.error('Error fetching position:', error);
-            this.updateStatusIndicator('disconnected', 'Connection error');
-        }
-    }
-    
     
     async updateTrack() {
         try {
@@ -431,6 +414,13 @@ class RTKMowerMap {
         
         document.getElementById('ntrip-status').textContent = ntripStatus ? 'Connected' : 'Disconnected';
         document.getElementById('ntrip-status').className = `connection-status-text ${ntripStatus ? 'connected' : 'disconnected'}`;
+        
+        // Update RTK-FIX indicator
+        const rtkFixElement = document.getElementById('rtk-fix-status');
+        if (rtkFixElement && status.hasOwnProperty('rtk_fix_available')) {
+            rtkFixElement.textContent = status.rtk_fix_status || 'Unavailable';
+            rtkFixElement.className = `rtk-fix-indicator ${status.rtk_fix_available ? 'available' : 'unavailable'}`;
+        }
         
         // Update system status
         document.getElementById('system-status').textContent = status.system_mode || status.rtk_status || 'Unknown';
