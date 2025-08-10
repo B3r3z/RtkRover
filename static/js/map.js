@@ -297,9 +297,9 @@ class RTKMowerMap {
         } else {
             // Create marker with custom icon
             const roverIcon = L.divIcon({
-                html: '🚜',
-                iconSize: [30, 30],
-                iconAnchor: [15, 15],
+                html: '🛸',
+                iconSize: [40, 40],
+                iconAnchor: [20, 40],
                 className: 'rover-icon'
             });
             
