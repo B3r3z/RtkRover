@@ -12,6 +12,7 @@ class RTKMowerMap {
         this.trackPoints = [];
         this.currentPosition = null;
         this.updateInterval = null;
+        this.hasInitializedPosition = false; // Flag to prevent constant re-centering
         
         // Error handling and retry logic
         this.consecutiveErrors = 0;
@@ -148,11 +149,16 @@ class RTKMowerMap {
             maxZoom: 19
         }).addTo(this.map);
         
+        // Track user interaction to prevent auto-centering
+        this.map.on('dragstart zoomstart', () => {
+            this.hasInitializedPosition = true;
+        });
+        
         // Initialize track polyline
         this.trackPolyline = L.polyline([], {
-            color: 'blue',
-            weight: 3,
-            opacity: 0.7
+            color: '#FFB5A7', // Use our accent color
+            weight: 4,
+            opacity: 0.8
         }).addTo(this.map);
         
         console.log('Map initialized');
@@ -305,14 +311,10 @@ class RTKMowerMap {
         // Update popup content
         this.currentMarker.setPopupContent(this.createPopupContent(position));
         
-        // Center map on first fix or if far away
-        if (this.trackPoints.length === 0) {
+        // Center map only on very first fix
+        if (this.trackPoints.length === 0 && !this.hasInitializedPosition) {
             this.map.setView([lat, lon], 18);
-        } else {
-            // Keep current view if position is visible
-            if (!this.map.getBounds().contains([lat, lon])) {
-                this.map.panTo([lat, lon]);
-            }
+            this.hasInitializedPosition = true;
         }
     }
     
@@ -326,12 +328,13 @@ class RTKMowerMap {
         // Store points for reference
         this.trackPoints = points;
         
-        // Fit map to track bounds if significant number of points
-        if (points.length > 10) {
+        // Only fit bounds on very first track load and if user hasn't interacted with map
+        if (points.length > 10 && !this.hasInitializedPosition) {
             try {
                 const bounds = this.trackPolyline.getBounds();
                 if (bounds.isValid()) {
                     this.map.fitBounds(bounds, { padding: [20, 20] });
+                    this.hasInitializedPosition = true;
                 }
             } catch (e) {
                 console.log('Could not fit bounds:', e);

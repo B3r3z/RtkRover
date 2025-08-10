@@ -1,4 +1,4 @@
-/* RTK Rover Neo-Brutalist Interface */
+/* RTK Rover Neo-Brutalist Minimalist Interface */
 
 * {
     margin: 0;
@@ -7,536 +7,429 @@
 }
 
 body {
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-weight: 900;
-    background-color: #000000;
-    color: #00FF00;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 600;
+    background-color: #FAF9F6;
+    color: #2A2A2A;
+    line-height: 1.6;
 }
 
 .container {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: linear-gradient(45deg, #FF0000 0%, #00FF00 25%, #0000FF 50%, #FFFF00 75%, #FF00FF 100%);
-    background-size: 400% 400%;
-    animation: gradient-shift 10s ease infinite;
-    position: relative;
+    background-color: #FAF9F6;
 }
 
-.container::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: repeating-linear-gradient(
-        45deg,
-        transparent,
-        transparent 2px,
-        rgba(0,0,0,0.03) 2px,
-        rgba(0,0,0,0.03) 4px
-    );
-    pointer-events: none;
-    z-index: 1000;
-}
-
-/* Header - Neo-Brutal Style */
+/* Header - Neo-Brutal Minimalist */
 .header {
-    background-color: #FF0080;
-    color: #000000;
-    padding: 2rem;
+    background-color: #F5F5DC;
+    color: #2A2A2A;
+    padding: 1.5rem 2rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border: 8px solid #FFFF00;
-    border-bottom: 12px solid #00FFFF;
-    box-shadow: 8px 8px 0px #FF4500, 16px 16px 0px #8A2BE2;
-    position: relative;
-}
-
-.header::before {
-    content: '';
-    position: absolute;
-    top: -4px;
-    left: -4px;
-    right: -4px;
-    bottom: -4px;
-    background: linear-gradient(45deg, #FF0000, #00FF00, #0000FF, #FFFF00);
-    z-index: -1;
-    border-radius: 0;
+    border-bottom: 4px solid #2A2A2A;
+    box-shadow: 0 4px 0 #C7B299;
 }
 
 .header h1 {
-    font-size: 2.5rem;
-    font-weight: 900;
-    text-shadow: 4px 4px 0px #FFFFFF, 8px 8px 0px #000000;
-    transform: skew(-5deg);
-    letter-spacing: 3px;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #2A2A2A;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 .status-panel {
     display: flex;
     align-items: center;
-    gap: 3rem;
-    background-color: #000000;
-    padding: 1rem;
-    border: 4px solid #00FFFF;
+    gap: 2rem;
+    background-color: #FFFFFF;
+    padding: 1rem 1.5rem;
+    border: 3px solid #2A2A2A;
     border-radius: 0;
-    box-shadow: 4px 4px 0px #FF4500;
+    box-shadow: 4px 4px 0 #C7B299;
 }
 
 .status-indicator {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    position: relative;
-    background-color: #FFFF00;
-    color: #000000;
+    gap: 0.75rem;
+    background-color: #FFB5A7;
+    color: #2A2A2A;
     padding: 0.5rem 1rem;
-    border: 3px solid #FF0000;
-    transform: rotate(-1deg);
-    font-weight: 900;
+    border: 2px solid #2A2A2A;
+    font-weight: 600;
+    font-size: 0.9rem;
 }
 
 .rtk-fix-badge {
-    background-color: #00FF00;
-    color: #000000;
-    font-size: 1rem;
-    font-weight: 900;
-    padding: 0.5rem 1rem;
-    border: 4px solid #000000;
-    border-radius: 0;
-    margin-left: 1rem;
-    animation: brutalist-pulse 1s infinite;
-    transform: skew(-10deg);
-    box-shadow: 4px 4px 0px #FF0000;
+    background-color: #FFB5A7;
+    color: #2A2A2A;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.25rem 0.75rem;
+    border: 2px solid #2A2A2A;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    animation: subtle-pulse 2s infinite;
 }
 
-@keyframes brutalist-pulse {
-    0% { 
-        transform: skew(-10deg) scale(1);
-        box-shadow: 4px 4px 0px #FF0000;
+@keyframes subtle-pulse {
+    0%, 100% { 
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(42, 42, 42, 0.7);
     }
     50% { 
-        transform: skew(-10deg) scale(1.1);
-        box-shadow: 8px 8px 0px #FF0000;
-        background-color: #FF00FF;
-    }
-    100% { 
-        transform: skew(-10deg) scale(1);
-        box-shadow: 4px 4px 0px #FF0000;
+        transform: scale(1.05);
+        box-shadow: 0 0 0 4px rgba(42, 42, 42, 0.2);
     }
 }
 
 .connection-status {
     display: flex;
-    gap: 2rem;
+    gap: 1.5rem;
 }
 
 .connection-item {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    font-size: 1rem;
-    font-weight: 900;
-    background-color: #FFFF00;
-    color: #000000;
-    padding: 0.5rem;
-    border: 3px solid #FF0000;
-    transform: rotate(1deg);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #2A2A2A;
+    background-color: #F5F5DC;
+    padding: 0.4rem 0.8rem;
+    border: 2px solid #2A2A2A;
 }
 
 .connection-dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 0;
-    background-color: #666;
-    border: 2px solid #000000;
-    transform: rotate(45deg);
+    width: 12px;
+    height: 12px;
+    background-color: #C7B299;
+    border: 2px solid #2A2A2A;
 }
 
 .connection-dot.connected { 
-    background-color: #00FF00;
-    box-shadow: 2px 2px 0px #000000;
+    background-color: #FFB5A7;
 }
 .connection-dot.disconnected { 
-    background-color: #FF0000;
-    box-shadow: 2px 2px 0px #000000;
+    background-color: #D3D3D3;
 }
 
 .status-dot {
-    width: 20px;
-    height: 20px;
-    border-radius: 0;
-    background-color: #666;
-    transition: all 0.2s;
-    border: 3px solid #000000;
-    transform: rotate(45deg);
+    width: 16px;
+    height: 16px;
+    background-color: #C7B299;
+    border: 2px solid #2A2A2A;
+    transition: all 0.3s ease;
 }
 
 .status-dot.connected { 
-    background-color: #00FF00;
-    box-shadow: 4px 4px 0px #000000;
+    background-color: #FFB5A7;
 }
 .status-dot.rtk-fixed { 
-    background-color: #00FF00;
-    box-shadow: 4px 4px 0px #FF00FF;
+    background-color: #FFB5A7;
+    box-shadow: 0 0 0 3px rgba(255, 181, 167, 0.3);
 }
 .status-dot.rtk-float { 
-    background-color: #FFFF00;
-    box-shadow: 4px 4px 0px #FF0000;
+    background-color: #F0E68C;
 }
 .status-dot.single { 
-    background-color: #FF8000;
-    box-shadow: 4px 4px 0px #000000;
+    background-color: #DEB887;
 }
 .status-dot.disconnected { 
-    background-color: #FF0000;
-    box-shadow: 4px 4px 0px #000000;
+    background-color: #D3D3D3;
 }
 
 .coords-display {
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-size: 1.2rem;
-    font-weight: 900;
-    background-color: #000000;
-    color: #00FF00;
-    padding: 1rem;
-    border: 4px solid #FFFF00;
-    border-radius: 0;
-    box-shadow: 6px 6px 0px #FF0080;
-    text-shadow: 2px 2px 0px #000000;
+    font-family: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+    font-size: 1rem;
+    font-weight: 500;
+    background-color: #2A2A2A;
+    color: #FAF9F6;
+    padding: 0.75rem 1rem;
+    border: 2px solid #2A2A2A;
+    letter-spacing: 0.5px;
 }
 
-/* Map Container - Neo-Brutal */
+/* Map Container - Neo-Brutal Minimalist */
 .map-container {
     flex: 1;
     position: relative;
-    border: 8px solid #FF0000;
-    box-shadow: 12px 12px 0px #00FFFF, 24px 24px 0px #000000;
-    background-color: #FFFF00;
+    border: 3px solid #2A2A2A;
+    border-top: 0;
+    background-color: #FFFFFF;
 }
 
 #map {
     width: 100%;
     height: 100%;
-    border: 4px solid #000000;
-    filter: contrast(1.3) saturate(1.5);
+    filter: contrast(1.1) brightness(1.05);
 }
 
-/* Info Panel - Neo-Brutal */
+/* Info Panel - Neo-Brutal Minimalist */
 .info-panel {
-    background-color: #FF00FF;
-    color: #000000;
-    padding: 2rem;
-    border: 6px solid #00FFFF;
-    border-top: 8px solid #FFFF00;
+    background-color: #F5F5DC;
+    color: #2A2A2A;
+    padding: 1.5rem 2rem;
+    border-top: 3px solid #2A2A2A;
     display: flex;
-    gap: 3rem;
-    max-height: 200px;
+    gap: 2rem;
+    max-height: 180px;
     overflow-y: auto;
-    box-shadow: 8px 8px 0px #FF4500, 16px 16px 0px #000000;
-    position: relative;
-}
-
-.info-panel::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: repeating-linear-gradient(
-        90deg,
-        #FF0000 0px,
-        #FF0000 10px,
-        #00FF00 10px,
-        #00FF00 20px,
-        #0000FF 20px,
-        #0000FF 30px
-    );
+    box-shadow: 0 -2px 0 #C7B299;
 }
 
 .info-section {
     flex: 1;
-    background-color: #000000;
+    background-color: #FFFFFF;
     padding: 1rem;
-    border: 4px solid #FFFF00;
-    transform: rotate(-1deg);
+    border: 2px solid #2A2A2A;
 }
 
-.info-section:nth-child(even) {
-    transform: rotate(1deg);
-    border-color: #00FFFF;
+.info-section:nth-child(odd) {
+    background-color: #FFB5A7;
 }
 
 .info-section h3 {
-    margin-bottom: 1rem;
-    color: #00FF00;
-    font-size: 1.5rem;
-    font-weight: 900;
-    text-shadow: 3px 3px 0px #FF0000;
-    border-bottom: 3px solid #FFFF00;
+    margin-bottom: 0.75rem;
+    color: #2A2A2A;
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #2A2A2A;
     padding-bottom: 0.5rem;
 }
 
 .info-row {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 0.5rem;
-    font-size: 1rem;
-    font-weight: 900;
-    padding: 0.25rem;
-    border: 2px solid transparent;
+    margin-bottom: 0.4rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 0.2rem 0;
 }
 
 .info-row:hover {
-    background-color: #FFFF00;
-    color: #000000;
-    border-color: #FF0000;
-    transform: scale(1.02);
+    background-color: rgba(42, 42, 42, 0.05);
+    padding: 0.2rem 0.5rem;
+    margin: 0.2rem -0.5rem;
 }
 
 .info-row span:first-child {
-    color: #00FFFF;
-    font-weight: 900;
-    text-shadow: 2px 2px 0px #000000;
+    color: #666;
+    font-weight: 600;
 }
 
 .info-row span:last-child {
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    color: #FFFF00;
-    background-color: #000000;
-    padding: 0.25rem 0.5rem;
-    border: 2px solid #FF0000;
-    font-weight: 900;
+    font-family: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+    color: #2A2A2A;
+    font-weight: 600;
 }
 
-/* RTK Status - Neo-Brutal */
+/* RTK Status - Neo-Brutal Minimalist */
 .rtk-status-value {
-    font-weight: 900;
-    padding: 0.5rem;
-    border: 3px solid #000000;
-    text-transform: uppercase;
-    font-size: 1.1rem;
-    text-shadow: 2px 2px 0px #000000;
+    font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.9rem;
 }
 
 .rtk-status-value.rtk-fixed {
-    color: #000000;
-    background-color: #00FF00;
-    border-color: #FF0000;
-    box-shadow: 4px 4px 0px #FF00FF;
+    color: #2A2A2A;
+    background-color: #FFB5A7;
 }
 
 .rtk-status-value.rtk-float {
-    color: #000000;
-    background-color: #FFFF00;
-    border-color: #0000FF;
-    box-shadow: 4px 4px 0px #FF0000;
+    color: #2A2A2A;
+    background-color: #F0E68C;
 }
 
 .rtk-status-value.single {
-    color: #FFFFFF;
-    background-color: #FF8000;
-    border-color: #000000;
-    box-shadow: 4px 4px 0px #00FFFF;
+    color: #2A2A2A;
+    background-color: #DEB887;
 }
 
 .rtk-status-value.no-fix {
-    color: #FFFFFF;
-    background-color: #FF0000;
-    border-color: #FFFF00;
-    box-shadow: 4px 4px 0px #000000;
+    color: #2A2A2A;
+    background-color: #D3D3D3;
 }
 
-/* RTK-FIX Indicator - Neo-Brutal */
+/* RTK-FIX Indicator - Neo-Brutal Minimalist */
 .rtk-fix-indicator {
-    font-weight: 900;
-    padding: 0.75rem 1rem;
-    border: 4px solid #000000;
-    font-size: 1.2rem;
+    font-weight: 600;
+    padding: 0.4rem 0.8rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.85rem;
     text-transform: uppercase;
-    text-shadow: 3px 3px 0px #000000;
-    transform: skew(-5deg);
-    letter-spacing: 2px;
+    letter-spacing: 0.5px;
 }
 
 .rtk-fix-indicator.available {
-    color: #000000;
-    background-color: #00FF00;
-    border-color: #FF0000;
-    box-shadow: 6px 6px 0px #FF00FF, 12px 12px 0px #000000;
+    color: #2A2A2A;
+    background-color: #FFB5A7;
 }
 
 .rtk-fix-indicator.unavailable {
-    color: #FFFFFF;
-    background-color: #FF0000;
-    border-color: #FFFF00;
-    box-shadow: 6px 6px 0px #00FFFF, 12px 12px 0px #000000;
+    color: #2A2A2A;
+    background-color: #D3D3D3;
 }
 
 .connection-status-text.connected {
-    color: #000000;
-    background-color: #00FF00;
-    font-weight: 900;
-    padding: 0.5rem;
-    border: 3px solid #FF0000;
+    color: #2A2A2A;
+    background-color: #FFB5A7;
+    font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border: 2px solid #2A2A2A;
     text-transform: uppercase;
-    box-shadow: 3px 3px 0px #000000;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
 }
 
 .connection-status-text.disconnected {
-    color: #FFFFFF;
-    background-color: #FF0000;
-    font-weight: 900;
-    padding: 0.5rem;
-    border: 3px solid #FFFF00;
+    color: #2A2A2A;
+    background-color: #D3D3D3;
+    font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border: 2px solid #2A2A2A;
     text-transform: uppercase;
-    box-shadow: 3px 3px 0px #000000;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
 }
 
-/* HDOP and Signal Quality - Neo-Brutal */
+/* HDOP and Signal Quality - Neo-Brutal Minimalist */
 .hdop-value.good {
-    color: #000000;
-    background-color: #00FF00;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #FF0000;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #FFB5A7;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .hdop-value.fair {
-    color: #000000;
-    background-color: #FFFF00;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #0000FF;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #F0E68C;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .hdop-value.poor {
-    color: #FFFFFF;
-    background-color: #FF0000;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #FFFF00;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #D3D3D3;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .hdop-warning {
-    color: #FF0000;
-    font-size: 1rem;
-    margin-left: 1rem;
-    animation: brutal-blink 0.5s infinite;
-    font-weight: 900;
-    text-transform: uppercase;
-    background-color: #FFFF00;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #000000;
+    color: #2A2A2A;
+    font-size: 0.75rem;
+    margin-left: 0.5rem;
+    animation: gentle-blink 2s infinite;
+    font-weight: 600;
+    background-color: #F0E68C;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
 }
 
-@keyframes brutal-blink {
+@keyframes gentle-blink {
     0%, 50% { 
         opacity: 1;
-        transform: scale(1);
-        background-color: #FFFF00;
     }
     51%, 100% { 
-        opacity: 0.7;
-        transform: scale(1.1);
-        background-color: #FF0000;
-        color: #FFFFFF;
+        opacity: 0.6;
     }
 }
 
 .signal-quality.excellent {
-    color: #000000;
-    background-color: #00FF00;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #FF0000;
-    box-shadow: 3px 3px 0px #FF00FF;
+    color: #2A2A2A;
+    background-color: #FFB5A7;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .signal-quality.good {
-    color: #000000;
-    background-color: #80FF00;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #0000FF;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #98FB98;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .signal-quality.fair {
-    color: #000000;
-    background-color: #FFFF00;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #FF0000;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #F0E68C;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
 .signal-quality.poor {
-    color: #FFFFFF;
-    background-color: #FF0000;
-    font-weight: 900;
-    padding: 0.25rem 0.5rem;
-    border: 3px solid #FFFF00;
-    box-shadow: 3px 3px 0px #000000;
+    color: #2A2A2A;
+    background-color: #D3D3D3;
+    font-weight: 600;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #2A2A2A;
+    font-size: 0.8rem;
 }
 
-/* Leaflet Customizations - Neo-Brutal */
+/* Leaflet Customizations - Neo-Brutal Minimalist */
 .leaflet-popup-content {
     margin: 12px 16px;
-    line-height: 1.6;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-weight: 900;
-    background-color: #FFFF00;
-    color: #000000;
-    border: 4px solid #FF0000;
+    line-height: 1.5;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 500;
+    background-color: #FFFFFF;
+    color: #2A2A2A;
+    border: 2px solid #2A2A2A;
     padding: 1rem;
-    text-transform: uppercase;
 }
 
 .leaflet-popup-content h4 {
     margin: 0 0 8px 0;
-    color: #FF0000;
-    font-size: 1.2rem;
-    text-shadow: 2px 2px 0px #000000;
-    border-bottom: 3px solid #00FFFF;
+    color: #2A2A2A;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border-bottom: 2px solid #FFB5A7;
     padding-bottom: 0.5rem;
 }
 
 .leaflet-popup-content-wrapper {
-    background-color: #FFFF00;
-    border: 4px solid #000000;
+    background-color: #FFFFFF;
+    border: 3px solid #2A2A2A;
     border-radius: 0 !important;
-    box-shadow: 8px 8px 0px #FF0000;
+    box-shadow: 4px 4px 0 #C7B299;
 }
 
 .leaflet-popup-tip {
-    background-color: #FFFF00;
-    border: 2px solid #000000;
+    background-color: #FFFFFF;
+    border: 2px solid #2A2A2A;
     border-radius: 0 !important;
-    box-shadow: 2px 2px 0px #FF0000;
+    box-shadow: 2px 2px 0 #C7B299;
 }
 
-/* Responsive Design - Neo-Brutal */
+/* Responsive Design - Neo-Brutal Minimalist */
 @media (max-width: 768px) {
     .header {
         flex-direction: column;
         gap: 1rem;
         text-align: center;
-        padding: 1.5rem;
+        padding: 1rem;
     }
     
     .header h1 {
-        font-size: 2rem;
-        transform: skew(-3deg);
+        font-size: 1.5rem;
     }
     
     .status-panel {
@@ -547,120 +440,57 @@ body {
     
     .info-panel {
         flex-direction: column;
-        gap: 1.5rem;
+        gap: 1rem;
         max-height: none;
-        padding: 1.5rem;
-    }
-    
-    .info-section {
-        transform: rotate(0deg);
+        padding: 1rem;
     }
     
     .coords-display {
-        font-size: 1rem;
-        padding: 0.75rem;
+        font-size: 0.9rem;
+        padding: 0.6rem;
     }
     
     .rtk-fix-indicator {
-        font-size: 1rem;
-        padding: 0.5rem 0.75rem;
-        transform: skew(-3deg);
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
     }
 }
 
-/* Loading Animation - Neo-Brutal */
+/* Loading Animation - Neo-Brutal Minimalist */
 .loading {
     display: inline-block;
-    width: 24px;
-    height: 24px;
-    border: 4px solid #000000;
-    border-top: 4px solid #FF0000;
-    border-right: 4px solid #00FF00;
-    border-bottom: 4px solid #0000FF;
-    border-left: 4px solid #FFFF00;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #C7B299;
+    border-top: 3px solid #FFB5A7;
     border-radius: 0;
-    animation: brutal-spin 0.5s linear infinite;
-    box-shadow: 4px 4px 0px #FF00FF;
+    animation: gentle-spin 1s linear infinite;
+    box-shadow: 2px 2px 0 rgba(42, 42, 42, 0.1);
 }
 
-@keyframes brutal-spin {
+@keyframes gentle-spin {
     0% { 
-        transform: rotate(0deg) scale(1);
-        border-top-color: #FF0000;
-    }
-    25% { 
-        transform: rotate(90deg) scale(1.1);
-        border-top-color: #00FF00;
-    }
-    50% { 
-        transform: rotate(180deg) scale(1);
-        border-top-color: #0000FF;
-    }
-    75% { 
-        transform: rotate(270deg) scale(1.1);
-        border-top-color: #FFFF00;
+        transform: rotate(0deg);
     }
     100% { 
-        transform: rotate(360deg) scale(1);
-        border-top-color: #FF0000;
+        transform: rotate(360deg);
     }
 }
 
-@keyframes gradient-shift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+/* Additional subtle animations */
+.info-section {
+    transition: all 0.3s ease;
 }
 
-/* Glitch Effect for Headers */
-.header h1::before {
-    content: attr(data-text);
-    position: absolute;
-    top: 0;
-    left: 2px;
-    width: 100%;
-    color: #FF0000;
-    overflow: hidden;
-    z-index: -1;
-    animation: glitch1 0.3s infinite linear alternate-reverse;
+.info-section:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(42, 42, 42, 0.1);
 }
 
-.header h1::after {
-    content: attr(data-text);
-    position: absolute;
-    top: 0;
-    left: -2px;
-    width: 100%;
-    color: #00FFFF;
-    overflow: hidden;
-    z-index: -1;
-    animation: glitch2 0.3s infinite linear alternate-reverse;
-}
-
-@keyframes glitch1 {
-    0% { clip: rect(42px, 9999px, 44px, 0); }
-    10% { clip: rect(12px, 9999px, 59px, 0); }
-    20% { clip: rect(85px, 9999px, 90px, 0); }
-    30% { clip: rect(20px, 9999px, 30px, 0); }
-    40% { clip: rect(60px, 9999px, 65px, 0); }
-    50% { clip: rect(10px, 9999px, 15px, 0); }
-    60% { clip: rect(75px, 9999px, 80px, 0); }
-    70% { clip: rect(35px, 9999px, 40px, 0); }
-    80% { clip: rect(55px, 9999px, 60px, 0); }
-    90% { clip: rect(25px, 9999px, 30px, 0); }
-    100% { clip: rect(45px, 9999px, 50px, 0); }
-}
-
-@keyframes glitch2 {
-    0% { clip: rect(65px, 9999px, 70px, 0); }
-    10% { clip: rect(30px, 9999px, 35px, 0); }
-    20% { clip: rect(15px, 9999px, 20px, 0); }
-    30% { clip: rect(80px, 9999px, 85px, 0); }
-    40% { clip: rect(5px, 9999px, 10px, 0); }
-    50% { clip: rect(70px, 9999px, 75px, 0); }
-    60% { clip: rect(40px, 9999px, 45px, 0); }
-    70% { clip: rect(50px, 9999px, 55px, 0); }
-    80% { clip: rect(20px, 9999px, 25px, 0); }
-    90% { clip: rect(60px, 9999px, 65px, 0); }
-    100% { clip: rect(35px, 9999px, 40px, 0); }
+/* Focus states for accessibility */
+.connection-item:focus,
+.rtk-fix-indicator:focus,
+.connection-status-text:focus {
+    outline: 3px solid #FFB5A7;
+    outline-offset: 2px;
 }
