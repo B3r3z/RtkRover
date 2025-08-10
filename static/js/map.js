@@ -1,6 +1,7 @@
 /**
  * RTK Mower Map Interface
  * Handles map display, position updates, and track visualization
+ * Enhanced with error handling and adaptive polling
  */
 
 class RTKMowerMap {
@@ -12,12 +13,125 @@ class RTKMowerMap {
         this.currentPosition = null;
         this.updateInterval = null;
         
+        // Error handling and retry logic
+        this.consecutiveErrors = 0;
+        this.maxConsecutiveErrors = 5;
+        this.retryTimeout = null;
+        this.lastSuccessfulUpdate = null;
+        this.isOffline = false;
+        
+        // Adaptive polling
+        this.basePollingInterval = 1000; // 1 second
+        this.currentPollingInterval = this.basePollingInterval;
+        this.rtkStatus = 'Unknown';
+        
         this.init();
     }
     
     init() {
         this.initMap();
+        this.setupErrorHandling();
         this.startUpdates();
+    }
+    
+    setupErrorHandling() {
+        /**
+         * Setup global error handling for the application
+         */
+        window.addEventListener('online', () => {
+            console.log('Connection restored');
+            this.isOffline = false;
+            this.consecutiveErrors = 0;
+            this.updateStatusIndicator('connecting', 'Reconnecting...');
+            this.startUpdates();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('Connection lost');
+            this.isOffline = true;
+            this.updateStatusIndicator('disconnected', 'Offline');
+            this.stopUpdates();
+        });
+    }
+    
+    getAdaptivePollingInterval() {
+        /**
+         * Calculate adaptive polling interval based on RTK status and error count
+         */
+        if (this.consecutiveErrors > 0) {
+            // Exponential backoff for errors
+            return Math.min(this.basePollingInterval * Math.pow(2, this.consecutiveErrors), 30000);
+        }
+        
+        // Adaptive timing based on RTK status
+        switch (this.rtkStatus) {
+            case 'RTK Fixed':
+                return 2000; // 2 seconds for stable RTK
+            case 'RTK Float':
+                return 1500; // 1.5 seconds for RTK Float
+            case 'DGPS':
+            case 'Single':
+                return 1000; // 1 second for standard GPS
+            case 'Demo Mode':
+                return 1000; // 1 second for demo
+            default:
+                return 1000; // Default 1 second
+        }
+    }
+    
+    handleError(error, context = '') {
+        /**
+         * Centralized error handling with retry logic
+         */
+        this.consecutiveErrors++;
+        const errorMsg = `${context}: ${error.message || error}`;
+        
+        console.error(`Error ${this.consecutiveErrors}/${this.maxConsecutiveErrors} - ${errorMsg}`);
+        
+        if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
+            console.error('Too many consecutive errors, switching to error mode');
+            this.updateStatusIndicator('disconnected', 'Connection Error');
+            this.scheduleRetry(30000); // Retry after 30 seconds
+        } else {
+            this.updateStatusIndicator('error', `Error (${this.consecutiveErrors})`);
+            this.scheduleRetry();
+        }
+    }
+    
+    scheduleRetry(customDelay = null) {
+        /**
+         * Schedule retry with exponential backoff
+         */
+        if (this.retryTimeout) {
+            clearTimeout(this.retryTimeout);
+        }
+        
+        const delay = customDelay || this.getAdaptivePollingInterval();
+        console.log(`Scheduling retry in ${delay}ms`);
+        
+        this.retryTimeout = setTimeout(() => {
+            if (!this.isOffline) {
+                this.updatePosition();
+                this.updateTrack();
+                this.updateStatus();
+            }
+        }, delay);
+    }
+    
+    resetErrorState() {
+        /**
+         * Reset error state on successful operation
+         */
+        if (this.consecutiveErrors > 0) {
+            console.log('Connection restored, resetting error state');
+            this.consecutiveErrors = 0;
+            this.lastSuccessfulUpdate = Date.now();
+        }
+        
+        if (this.retryTimeout) {
+            clearTimeout(this.retryTimeout);
+            this.retryTimeout = null;
+        }
     }
     
     initMap() {
@@ -45,14 +159,29 @@ class RTKMowerMap {
     }
     
     startUpdates() {
-        // Update every 1 second
-        this.updateInterval = setInterval(() => {
-            this.updatePosition();
-            this.updateTrack();
-            this.updateStatus();
-        }, 1000);
+        // Stop any existing updates
+        this.stopUpdates();
         
-        console.log('Started position updates');
+        // Adaptive polling interval
+        this.currentPollingInterval = this.getAdaptivePollingInterval();
+        
+        this.updateInterval = setInterval(() => {
+            if (!this.isOffline) {
+                this.updatePosition();
+                this.updateTrack();
+                this.updateStatus();
+                
+                // Adjust polling interval dynamically
+                const newInterval = this.getAdaptivePollingInterval();
+                if (newInterval !== this.currentPollingInterval) {
+                    this.currentPollingInterval = newInterval;
+                    this.stopUpdates();
+                    this.startUpdates();
+                }
+            }
+        }, this.currentPollingInterval);
+        
+        console.log(`Started position updates with ${this.currentPollingInterval}ms interval`);
     }
     
     stopUpdates() {
@@ -60,10 +189,49 @@ class RTKMowerMap {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
         }
+        if (this.retryTimeout) {
+            clearTimeout(this.retryTimeout);
+            this.retryTimeout = null;
+        }
     }
     
     async updatePosition() {
         try {
+            const response = await fetch('/api/position', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                },
+                // Add timeout for requests
+                signal: AbortSignal.timeout(5000)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Reset error state on success
+            this.resetErrorState();
+            
+            if (data.lat !== null && data.lon !== null) {
+                this.updateMapPosition(data);
+                this.updateUI(data);
+                this.currentPosition = data;
+                this.rtkStatus = data.rtk_status || 'Unknown';
+            } else {
+                console.warn('No GPS position available:', data.error || 'Unknown reason');
+                this.updateStatusIndicator('no-fix', data.rtk_status || 'No Fix');
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                this.handleError(new Error('Request timeout'), 'Position update');
+            } else {
+                this.handleError(error, 'Position update');
+            }
+        }
+    }
             const response = await fetch('/api/position');
             const data = await response.json();
             
@@ -81,30 +249,52 @@ class RTKMowerMap {
         }
     }
     
+    
     async updateTrack() {
         try {
-            const response = await fetch('/api/track');
+            const response = await fetch('/api/track', {
+                signal: AbortSignal.timeout(3000)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
             
-            if (response.ok && data.points && data.points.length > 0) {
+            if (data.points && data.points.length > 0) {
                 this.updateTrackLine(data.points);
                 this.updateTrackInfo(data);
             }
         } catch (error) {
-            console.error('Error fetching track:', error);
+            if (error.name !== 'AbortError') {
+                console.warn('Track update failed:', error.message);
+                // Don't count track errors as critical errors
+            }
         }
     }
     
     async updateStatus() {
         try {
-            const response = await fetch('/api/status');
+            const response = await fetch('/api/status', {
+                signal: AbortSignal.timeout(3000)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
             
-            if (response.ok) {
+            if (data) {
                 this.updateSystemStatus(data);
+                this.rtkStatus = data.rtk_status || 'Unknown';
             }
         } catch (error) {
-            console.error('Error fetching status:', error);
+            if (error.name !== 'AbortError') {
+                console.warn('Status update failed:', error.message);
+                // Don't count status errors as critical errors
+            }
         }
     }
     

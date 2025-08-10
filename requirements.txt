@@ -1,8 +1,29 @@
 # Python dependencies for RTK Mower project
-Flask==2.3.3
+# Updated for security and compatibility
+
+# Web Framework
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# GPS and Serial Communication
 pyserial==3.5
-requests==2.31.0
-pynmea2==1.19.0
 pynmeagps==1.0.50
+
+# HTTP Requests
+requests==2.31.0
+
+# Configuration Management
 python-dotenv==1.0.0
-gps3
+
+# Development and Quality Tools (optional)
+# black==23.12.1
+# flake8==7.0.0
+# mypy==1.8.0
+
+# Testing (optional)
+# pytest==7.4.4
+# pytest-cov==4.1.0
+
+# Production Deployment (optional)
+# gunicorn==21.2.0
+# supervisor==4.2.5
