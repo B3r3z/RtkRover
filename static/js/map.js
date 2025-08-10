@@ -35,12 +35,39 @@ class RTKRoverMap {
         this.basePollingInterval = 1000;
         this.currentPollingInterval = this.basePollingInterval;
         this.rtkStatus = 'Unknown';
+        this.lastIntervalChange = 0; // Add throttling for interval changes
+        
+        // Cache DOM elements to avoid repeated queries
+        this.domElements = {};
         
         this.init();
     }
     
+    cacheControlElements() {
+        this.domElements = {
+            followBtn: document.getElementById('follow-btn'),
+            trackBtn: document.getElementById('track-btn'),
+            clearBtn: document.getElementById('clear-btn'),
+            coordinates: document.getElementById('coordinates'),
+            satellitesCount: document.getElementById('satellites-count'),
+            rtkStatusBadge: document.getElementById('rtk-status-badge'),
+            rtkStatusText: document.getElementById('rtk-status-text'),
+            hdop: document.getElementById('hdop'),
+            rtkFixStatus: document.getElementById('rtk-fix-status'),
+            speed: document.getElementById('speed'),
+            heading: document.getElementById('heading'),
+            lastUpdate: document.getElementById('last-update'),
+            trackPoints: document.getElementById('track-points'),
+            sessionId: document.getElementById('session-id'),
+            systemStatus: document.getElementById('system-status'),
+            gpsDot: document.getElementById('gps-dot'),
+            ntripDot: document.getElementById('ntrip-dot')
+        };
+    }
+    
     init() {
         this.initMap();
+        this.cacheControlElements();
         this.setupControls();
         this.setupErrorHandling();
         this.startUpdates();
@@ -153,25 +180,22 @@ class RTKRoverMap {
     
     setupControls() {
         // Follow button
-        const followBtn = document.getElementById('follow-btn');
-        if (followBtn) {
-            followBtn.addEventListener('click', () => {
+        if (this.domElements.followBtn) {
+            this.domElements.followBtn.addEventListener('click', () => {
                 this.setFollowMode(!this.followMode);
             });
         }
         
         // Track button
-        const trackBtn = document.getElementById('track-btn');
-        if (trackBtn) {
-            trackBtn.addEventListener('click', () => {
+        if (this.domElements.trackBtn) {
+            this.domElements.trackBtn.addEventListener('click', () => {
                 this.setRecordTrack(!this.recordTrack);
             });
         }
         
         // Clear button
-        const clearBtn = document.getElementById('clear-btn');
-        if (clearBtn) {
-            clearBtn.addEventListener('click', () => {
+        if (this.domElements.clearBtn) {
+            this.domElements.clearBtn.addEventListener('click', () => {
                 this.clearLocalTrack();
             });
         }
@@ -191,8 +215,12 @@ class RTKRoverMap {
                 this.updateStatus();
                 
                 const newInterval = this.getAdaptivePollingInterval();
-                if (newInterval !== this.currentPollingInterval) {
+                const now = Date.now();
+                // Throttle interval changes to prevent rapid restarts
+                if (newInterval !== this.currentPollingInterval && 
+                    (now - this.lastIntervalChange) > 5000) {
                     this.currentPollingInterval = newInterval;
+                    this.lastIntervalChange = now;
                     this.stopUpdates();
                     this.startUpdates();
                 }
@@ -213,12 +241,24 @@ class RTKRoverMap {
         }
     }
     
+    // Utility method for timeout signal with fallback
+    createTimeoutSignal(timeoutMs) {
+        if (typeof AbortSignal.timeout === 'function') {
+            return AbortSignal.timeout(timeoutMs);
+        } else {
+            // Fallback for older browsers
+            const controller = new AbortController();
+            setTimeout(() => controller.abort(), timeoutMs);
+            return controller.signal;
+        }
+    }
+
     async updatePosition() {
         try {
             const response = await fetch('/api/position', {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' },
-                signal: AbortSignal.timeout(5000)
+                signal: this.createTimeoutSignal(5000)
             });
             
             if (!response.ok) {
@@ -226,9 +266,16 @@ class RTKRoverMap {
             }
             
             const data = await response.json();
+            
+            // Validate JSON response structure
+            if (!data || typeof data !== 'object') {
+                throw new Error('Invalid JSON response structure');
+            }
+            
             this.resetErrorState();
             
-            if (data.lat !== null && data.lon !== null) {
+            if (data.lat !== null && data.lat !== undefined && 
+                data.lon !== null && data.lon !== undefined) {
                 this.updateMapPosition(data);
                 this.updateUI(data);
                 this.currentPosition = data;
@@ -249,7 +296,7 @@ class RTKRoverMap {
     async updateTrack() {
         try {
             const response = await fetch('/api/track', {
-                signal: AbortSignal.timeout(3000)
+                signal: this.createTimeoutSignal(3000)
             });
             
             if (!response.ok) {
@@ -272,7 +319,7 @@ class RTKRoverMap {
     async updateStatus() {
         try {
             const response = await fetch('/api/status', {
-                signal: AbortSignal.timeout(3000)
+                signal: this.createTimeoutSignal(3000)
             });
             
             if (!response.ok) {
@@ -349,96 +396,80 @@ class RTKRoverMap {
     
     updateUI(position) {
         // Update coordinates
-        const coordsElement = document.getElementById('coordinates');
-        if (coordsElement) {
-            coordsElement.textContent = `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}`;
+        if (this.domElements.coordinates) {
+            this.domElements.coordinates.textContent = `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}`;
         }
         
         // Update satellites count
-        const satElement = document.getElementById('satellites-count');
-        if (satElement) {
-            satElement.textContent = position.satellites || '--';
+        if (this.domElements.satellitesCount) {
+            this.domElements.satellitesCount.textContent = position.satellites || '--';
         }
         
         // Update RTK status badge
         this.updateRTKBadge(this.getRTKStatusClass(position.rtk_status), position.rtk_status);
         
         // Update HDOP
-        const hdopElement = document.getElementById('hdop');
-        if (hdopElement && position.hdop) {
-            hdopElement.textContent = position.hdop.toFixed(1);
-            hdopElement.className = `stat-value ${this.getHDOPClass(position.hdop)}`;
+        if (this.domElements.hdop && position.hdop) {
+            this.domElements.hdop.textContent = position.hdop.toFixed(1);
+            this.domElements.hdop.className = `stat-value ${this.getHDOPClass(position.hdop)}`;
         }
         
         // Update RTK fix status
-        const rtkFixElement = document.getElementById('rtk-fix-status');
-        if (rtkFixElement) {
-            rtkFixElement.textContent = position.rtk_status || '--';
-            rtkFixElement.className = `stat-value ${this.getRTKStatusClass(position.rtk_status)}`;
+        if (this.domElements.rtkFixStatus) {
+            this.domElements.rtkFixStatus.textContent = position.rtk_status || '--';
+            this.domElements.rtkFixStatus.className = `stat-value ${this.getRTKStatusClass(position.rtk_status)}`;
         }
         
         // Update speed
-        const speedElement = document.getElementById('speed');
-        if (speedElement) {
-            speedElement.textContent = position.speed_knots ? 
+        if (this.domElements.speed) {
+            this.domElements.speed.textContent = position.speed_knots ? 
                 `${position.speed_knots.toFixed(1)} węzłów` : '-- węzłów';
         }
         
         // Update heading
-        const headingElement = document.getElementById('heading');
-        if (headingElement) {
-            headingElement.textContent = position.heading ? 
+        if (this.domElements.heading) {
+            this.domElements.heading.textContent = position.heading ? 
                 `${position.heading.toFixed(0)}°` : '--°';
         }
         
         // Update last update time
-        if (position.timestamp) {
-            const updateElement = document.getElementById('last-update');
-            if (updateElement) {
-                const time = new Date(position.timestamp).toLocaleTimeString('pl-PL');
-                updateElement.textContent = time;
-            }
+        if (position.timestamp && this.domElements.lastUpdate) {
+            const time = new Date(position.timestamp).toLocaleTimeString('pl-PL');
+            this.domElements.lastUpdate.textContent = time;
         }
     }
     
     updateTrackInfo(trackData) {
-        const pointsElement = document.getElementById('track-points');
-        if (pointsElement) {
-            pointsElement.textContent = trackData.points.length;
+        if (this.domElements.trackPoints) {
+            this.domElements.trackPoints.textContent = trackData.points.length;
         }
         
-        const sessionElement = document.getElementById('session-id');
-        if (sessionElement) {
-            sessionElement.textContent = trackData.session_id || '--';
+        if (this.domElements.sessionId) {
+            this.domElements.sessionId.textContent = trackData.session_id || '--';
         }
     }
     
     updateSystemStatus(status) {
         // Update connection dots
-        this.updateConnectionDot('gps-dot', status.gps_connected);
-        this.updateConnectionDot('ntrip-dot', status.ntrip_connected);
+        this.updateConnectionDot(this.domElements.gpsDot, status.gps_connected);
+        this.updateConnectionDot(this.domElements.ntripDot, status.ntrip_connected);
         
         // Update system status
-        const systemElement = document.getElementById('system-status');
-        if (systemElement) {
-            systemElement.textContent = status.system_mode || status.rtk_status || 'Nieznany';
+        if (this.domElements.systemStatus) {
+            this.domElements.systemStatus.textContent = status.system_mode || status.rtk_status || 'Nieznany';
         }
     }
     
-    updateConnectionDot(elementId, isConnected) {
-        const dot = document.getElementById(elementId);
-        if (dot) {
-            dot.className = `conn-dot ${isConnected ? 'connected' : 'disconnected'}`;
+    updateConnectionDot(dotElement, isConnected) {
+        if (dotElement) {
+            dotElement.className = `conn-dot ${isConnected ? 'connected' : 'disconnected'}`;
         }
     }
     
     updateRTKBadge(statusClass, statusText) {
-        const badge = document.getElementById('rtk-status-badge');
-        const textElement = document.getElementById('rtk-status-text');
-        
-        if (badge && textElement) {
-            badge.className = `rtk-badge ${statusClass}`;
-            textElement.textContent = statusText || 'NIEZNANY';
+        if (this.domElements.rtkStatusBadge && this.domElements.rtkStatusText) {
+            this.domElements.rtkStatusBadge.className = `rtk-badge ${statusClass}`;
+            this.domElements.rtkStatusText.textContent = statusText || 'NIEZNANY';
         }
     }
     
@@ -514,30 +545,29 @@ class RTKRoverMap {
     
     updateControlsUI() {
         // Follow button
-        const followBtn = document.getElementById('follow-btn');
-        if (followBtn) {
-            followBtn.classList.toggle('active', this.followMode);
-            const textSpan = followBtn.querySelector('.btn-text');
+        if (this.domElements.followBtn) {
+            this.domElements.followBtn.classList.toggle('active', this.followMode);
+            this.domElements.followBtn.setAttribute('aria-pressed', this.followMode.toString());
+            const textSpan = this.domElements.followBtn.querySelector('.btn-text');
             if (textSpan) {
-                textSpan.textContent = this.followMode ? 'ŚLEDŹ' : 'ŚLEDŹ';
+                textSpan.textContent = this.followMode ? 'AKTYWNE' : 'ŚLEDŹ';
             }
         }
         
         // Track button
-        const trackBtn = document.getElementById('track-btn');
-        if (trackBtn) {
-            trackBtn.classList.toggle('active', this.recordTrack);
-            const textSpan = trackBtn.querySelector('.btn-text');
+        if (this.domElements.trackBtn) {
+            this.domElements.trackBtn.classList.toggle('active', this.recordTrack);
+            this.domElements.trackBtn.setAttribute('aria-pressed', this.recordTrack.toString());
+            const textSpan = this.domElements.trackBtn.querySelector('.btn-text');
             if (textSpan) {
                 textSpan.textContent = this.recordTrack ? 'STOP' : 'ŚLAD';
             }
         }
         
         // Clear button
-        const clearBtn = document.getElementById('clear-btn');
-        if (clearBtn) {
-            clearBtn.disabled = this.localTrackPoints.length === 0;
-            clearBtn.style.opacity = clearBtn.disabled ? '0.5' : '1';
+        if (this.domElements.clearBtn) {
+            this.domElements.clearBtn.disabled = this.localTrackPoints.length === 0;
+            this.domElements.clearBtn.style.opacity = this.domElements.clearBtn.disabled ? '0.5' : '1';
         }
     }
 }

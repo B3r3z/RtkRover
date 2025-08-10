@@ -63,18 +63,26 @@
                 
                 <!-- Map Controls Overlay -->
                 <div class="map-controls">
-                    <button id="follow-btn" class="control-btn follow-btn active" title="Śledzenie rover-a">
-                        <span class="btn-icon">📍</span>
+                    <button id="follow-btn" class="control-btn follow-btn active" 
+                            title="Śledzenie rover-a" 
+                            aria-label="Włącz/wyłącz śledzenie pozycji rover-a"
+                            aria-pressed="true">
+                        <span class="btn-icon" aria-hidden="true">📍</span>
                         <span class="btn-text">ŚLEDŹ</span>
                     </button>
                     
-                    <button id="track-btn" class="control-btn track-btn" title="Nagrywanie ścieżki">
-                        <span class="btn-icon">🛤️</span>
+                    <button id="track-btn" class="control-btn track-btn" 
+                            title="Nagrywanie ścieżki"
+                            aria-label="Rozpocznij/zatrzymaj nagrywanie ścieżki"
+                            aria-pressed="false">
+                        <span class="btn-icon" aria-hidden="true">🛤️</span>
                         <span class="btn-text">ŚLAD</span>
                     </button>
                     
-                    <button id="clear-btn" class="control-btn clear-btn" title="Wyczyść ścieżkę">
-                        <span class="btn-icon">🗑️</span>
+                    <button id="clear-btn" class="control-btn clear-btn" 
+                            title="Wyczyść ścieżkę"
+                            aria-label="Wyczyść zapisaną ścieżkę">
+                        <span class="btn-icon" aria-hidden="true">🗑️</span>
                         <span class="btn-text">WYCZYŚĆ</span>
                     </button>
                 </div>
