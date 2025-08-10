@@ -1,10 +1,9 @@
 /**
- * RTK Mower Map Interface
- * Handles map display, position updates, and track visualization
- * Enhanced with error handling and adaptive polling
+ * RTK ROVER - Neo-Brutalist Map Interface
+ * Enhanced GPS tracking with modern brutalist design
  */
 
-class RTKMowerMap {
+class RTKRoverMap {
     constructor() {
         this.map = null;
         this.currentMarker = null;
@@ -12,21 +11,20 @@ class RTKMowerMap {
         this.trackPoints = [];
         this.currentPosition = null;
         this.updateInterval = null;
-        this.hasInitializedPosition = false; // legacy flag
         
         // Follow/centering behavior
-        this.hasCenteredInitially = false;   // first auto-center done
-        this.userInteracted = false;         // user panned/zoomed
-        this.followMode = true;              // UI toggle
-        this.recenterPaddingRatio = 0.25;    // keep rover within inner bounds
+        this.hasCenteredInitially = false;
+        this.userInteracted = false;
+        this.followMode = true;
+        this.recenterPaddingRatio = 0.25;
         
         // Local track recording
         this.recordTrack = false;
         this.drawPolyline = null;
         this.localTrackPoints = [];
-        this.minTrackPointDistance = 0.001; // meters, avoid noise
+        this.minTrackPointDistance = 0.001;
         
-        // Error handling and retry logic
+        // Error handling
         this.consecutiveErrors = 0;
         this.maxConsecutiveErrors = 5;
         this.retryTimeout = null;
@@ -34,7 +32,7 @@ class RTKMowerMap {
         this.isOffline = false;
         
         // Adaptive polling
-        this.basePollingInterval = 1000; // 1 second
+        this.basePollingInterval = 1000;
         this.currentPollingInterval = this.basePollingInterval;
         this.rtkStatus = 'Unknown';
         
@@ -43,100 +41,73 @@ class RTKMowerMap {
     
     init() {
         this.initMap();
+        this.setupControls();
         this.setupErrorHandling();
         this.startUpdates();
     }
     
     setupErrorHandling() {
-        /**
-         * Setup global error handling for the application
-         */
         window.addEventListener('online', () => {
-            console.log('Connection restored');
+            console.log('Połączenie przywrócone');
             this.isOffline = false;
             this.consecutiveErrors = 0;
-            this.updateStatusIndicator('connecting', 'Reconnecting...');
+            this.updateRTKBadge('single', 'ŁĄCZENIE...');
             this.startUpdates();
         });
         
         window.addEventListener('offline', () => {
-            console.log('Connection lost');
+            console.log('Utrata połączenia');
             this.isOffline = true;
-            this.updateStatusIndicator('disconnected', 'Offline');
+            this.updateRTKBadge('no-fix', 'OFFLINE');
             this.stopUpdates();
         });
     }
     
     getAdaptivePollingInterval() {
-        /**
-         * Calculate adaptive polling interval based on RTK status and error count
-         */
         if (this.consecutiveErrors > 0) {
-            // Exponential backoff for errors
             return Math.min(this.basePollingInterval * Math.pow(2, this.consecutiveErrors), 30000);
         }
         
-        // Adaptive timing based on RTK status
         switch (this.rtkStatus) {
-            case 'RTK Fixed':
-                return 2000; // 2 seconds for stable RTK
-            case 'RTK Float':
-                return 1500; // 1.5 seconds for RTK Float
-            case 'DGPS':
-            case 'Single':
-                return 1000; // 1 second for standard GPS
-            case 'Demo Mode':
-                return 1000; // 1 second for demo
-            default:
-                return 1000; // Default 1 second
+            case 'RTK Fixed': return 1000;
+            case 'RTK Float': return 1500;
+            case 'DGPS': return 2000;
+            default: return 3000;
         }
     }
     
     handleError(error, context = '') {
-        /**
-         * Centralized error handling with retry logic
-         */
         this.consecutiveErrors++;
         const errorMsg = `${context}: ${error.message || error}`;
         
-        console.error(`Error ${this.consecutiveErrors}/${this.maxConsecutiveErrors} - ${errorMsg}`);
+        console.error(`Błąd ${this.consecutiveErrors}/${this.maxConsecutiveErrors} - ${errorMsg}`);
         
         if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-            console.error('Too many consecutive errors, switching to error mode');
-            this.updateStatusIndicator('disconnected', 'Connection Error');
-            this.scheduleRetry(30000); // Retry after 30 seconds
+            this.updateRTKBadge('no-fix', 'BŁĄD SYSTEMU');
+            this.stopUpdates();
+            this.scheduleRetry(10000);
         } else {
-            this.updateStatusIndicator('error', `Error (${this.consecutiveErrors})`);
             this.scheduleRetry();
         }
     }
     
     scheduleRetry(customDelay = null) {
-        /**
-         * Schedule retry with exponential backoff
-         */
         if (this.retryTimeout) {
             clearTimeout(this.retryTimeout);
         }
         
         const delay = customDelay || this.getAdaptivePollingInterval();
-        console.log(`Scheduling retry in ${delay}ms`);
+        console.log(`Ponowna próba za ${delay}ms`);
         
         this.retryTimeout = setTimeout(() => {
-            if (!this.isOffline) {
-                this.updatePosition();
-                this.updateTrack();
-                this.updateStatus();
-            }
+            this.retryTimeout = null;
+            this.startUpdates();
         }, delay);
     }
     
     resetErrorState() {
-        /**
-         * Reset error state on successful operation
-         */
         if (this.consecutiveErrors > 0) {
-            console.log('Connection restored, resetting error state');
+            console.log('Stan błędu zresetowany');
             this.consecutiveErrors = 0;
             this.lastSuccessfulUpdate = Date.now();
         }
@@ -148,52 +119,69 @@ class RTKMowerMap {
     }
     
     initMap() {
-        // Default center (Poland center)
         const defaultLat = 52.0;
         const defaultLon = 19.0;
         
-        // Initialize Leaflet map
         this.map = L.map('map').setView([defaultLat, defaultLon], 6);
         
-        // Add OpenStreetMap tile layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19
         }).addTo(this.map);
         
-        // Track user interaction to disable follow
         this.map.on('dragstart zoomstart', () => {
             this.userInteracted = true;
             this.setFollowMode(false);
-            this.hasInitializedPosition = true; // keep legacy behavior
         });
         
-        // Initialize track polyline (server-provided) in muted color
+        // Server track in muted color
         this.trackPolyline = L.polyline([], {
-            color: '#9CA3AF', // muted server track
+            color: '#9CA3AF',
             weight: 3,
             opacity: 0.8
         }).addTo(this.map);
         
-        // Local drawn track in accent color
+        // Local track in teal accent
         this.drawPolyline = L.polyline([], {
-            color: '#0EA5E9',
+            color: '#2DD4BF',
             weight: 4,
             opacity: 0.9
         }).addTo(this.map);
         
-        // Add follow and track controls
-        this.createFollowControl();
-        this.createTrackControls();
+        console.log('Mapa zainicjalizowana');
+    }
+    
+    setupControls() {
+        // Follow button
+        const followBtn = document.getElementById('follow-btn');
+        if (followBtn) {
+            followBtn.addEventListener('click', () => {
+                this.setFollowMode(!this.followMode);
+            });
+        }
         
-        console.log('Map initialized');
+        // Track button
+        const trackBtn = document.getElementById('track-btn');
+        if (trackBtn) {
+            trackBtn.addEventListener('click', () => {
+                this.setRecordTrack(!this.recordTrack);
+            });
+        }
+        
+        // Clear button
+        const clearBtn = document.getElementById('clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.clearLocalTrack();
+            });
+        }
+        
+        this.updateControlsUI();
     }
     
     startUpdates() {
-        // Stop any existing updates
         this.stopUpdates();
         
-        // Adaptive polling interval
         this.currentPollingInterval = this.getAdaptivePollingInterval();
         
         this.updateInterval = setInterval(() => {
@@ -202,7 +190,6 @@ class RTKMowerMap {
                 this.updateTrack();
                 this.updateStatus();
                 
-                // Adjust polling interval dynamically
                 const newInterval = this.getAdaptivePollingInterval();
                 if (newInterval !== this.currentPollingInterval) {
                     this.currentPollingInterval = newInterval;
@@ -212,7 +199,7 @@ class RTKMowerMap {
             }
         }, this.currentPollingInterval);
         
-        console.log(`Started position updates with ${this.currentPollingInterval}ms interval`);
+        console.log(`Aktualizacje rozpoczęte: ${this.currentPollingInterval}ms`);
     }
     
     stopUpdates() {
@@ -230,10 +217,7 @@ class RTKMowerMap {
         try {
             const response = await fetch('/api/position', {
                 method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                },
-                // Add timeout for requests
+                headers: { 'Accept': 'application/json' },
                 signal: AbortSignal.timeout(5000)
             });
             
@@ -242,8 +226,6 @@ class RTKMowerMap {
             }
             
             const data = await response.json();
-            
-            // Reset error state on success
             this.resetErrorState();
             
             if (data.lat !== null && data.lon !== null) {
@@ -252,14 +234,14 @@ class RTKMowerMap {
                 this.currentPosition = data;
                 this.rtkStatus = data.rtk_status || 'Unknown';
             } else {
-                console.warn('No GPS position available:', data.error || 'Unknown reason');
-                this.updateStatusIndicator('no-fix', data.rtk_status || 'No Fix');
+                console.warn('Brak pozycji GPS:', data.error || 'Nieznany powód');
+                this.updateRTKBadge('no-fix', data.rtk_status || 'BRAK SYGNAŁU');
             }
         } catch (error) {
             if (error.name === 'AbortError') {
-                this.handleError(new Error('Request timeout'), 'Position update');
+                this.handleError(new Error('Timeout połączenia'), 'Aktualizacja pozycji');
             } else {
-                this.handleError(error, 'Position update');
+                this.handleError(error, 'Aktualizacja pozycji');
             }
         }
     }
@@ -282,8 +264,7 @@ class RTKMowerMap {
             }
         } catch (error) {
             if (error.name !== 'AbortError') {
-                console.warn('Track update failed:', error.message);
-                // Don't count track errors as critical errors
+                console.warn('Błąd aktualizacji śladu:', error.message);
             }
         }
     }
@@ -299,15 +280,10 @@ class RTKMowerMap {
             }
             
             const data = await response.json();
-            
-            if (data) {
-                this.updateSystemStatus(data);
-                this.rtkStatus = data.rtk_status || 'Unknown';
-            }
+            this.updateSystemStatus(data);
         } catch (error) {
             if (error.name !== 'AbortError') {
-                console.warn('Status update failed:', error.message);
-                // Don't count status errors as critical errors
+                console.warn('Błąd aktualizacji statusu:', error.message);
             }
         }
     }
@@ -316,11 +292,9 @@ class RTKMowerMap {
         const lat = position.lat;
         const lon = position.lon;
         
-        // Update or create current position marker
         if (this.currentMarker) {
             this.currentMarker.setLatLng([lat, lon]);
         } else {
-            // Create marker with custom icon
             const roverIcon = L.divIcon({
                 html: '🛸',
                 iconSize: [40, 40],
@@ -333,183 +307,143 @@ class RTKMowerMap {
                 .bindPopup(this.createPopupContent(position));
         }
         
-        // Update popup content
         this.currentMarker.setPopupContent(this.createPopupContent(position));
         
-        // Local track recording
         if (this.recordTrack) {
             this.appendTrackPointIfNeeded(lat, lon);
         }
         
-        // Center behavior
         if (!this.hasCenteredInitially) {
-            // First fix: one-time center without animation
             this.map.setView([lat, lon], 17, { animate: false });
             this.hasCenteredInitially = true;
-            this.hasInitializedPosition = true; // legacy flag for compatibility
         } else if (this.followMode) {
-            // Only pan if rover is leaving inner bounds to avoid constant re-centering
             try {
                 const bounds = this.map.getBounds();
-                // create inner bounds (shrink by padding ratio)
                 const inner = L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast()).pad(-this.recenterPaddingRatio);
                 if (!inner.contains([lat, lon])) {
                     this.map.panTo([lat, lon], { animate: true });
                 }
             } catch (e) {
-                // Fallback minimal re-center without fighting the user
                 this.map.panTo([lat, lon], { animate: true });
             }
         }
     }
     
     updateTrackLine(points) {
-        // Convert points to lat/lon array
         const trackCoords = points.map(point => [point.lat, point.lon]);
-        
-        // Update polyline
         this.trackPolyline.setLatLngs(trackCoords);
-        
-        // Store points for reference
         this.trackPoints = points;
         
-        // Fit bounds only once at the very beginning and only if user hasn't interacted
         if (points.length > 10 && !this.hasCenteredInitially && !this.userInteracted) {
             try {
                 const bounds = this.trackPolyline.getBounds();
                 if (bounds.isValid()) {
                     this.map.fitBounds(bounds, { padding: [20, 20] });
                     this.hasCenteredInitially = true;
-                    this.hasInitializedPosition = true;
                 }
             } catch (e) {
-                console.log('Could not fit bounds:', e);
+                console.log('Nie można dopasować granic:', e);
             }
         }
     }
     
     updateUI(position) {
-        // Update coordinates display
-        document.getElementById('coordinates').textContent = 
-            `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}`;
-        
-        // Update GPS info with signal quality analysis
-        document.getElementById('satellites').textContent = position.satellites || '--';
-        
-        const hdop = position.hdop;
-        const hdopElement = document.getElementById('hdop');
-        const hdopWarning = document.getElementById('hdop-warning');
-        
-        if (hdop) {
-            hdopElement.textContent = hdop.toFixed(1);
-            
-            // Color-code HDOP values
-            hdopElement.className = 'hdop-value';
-            if (hdop <= 2.0) {
-                hdopElement.classList.add('good');
-                hdopWarning.style.display = 'none';
-            } else if (hdop <= 5.0) {
-                hdopElement.classList.add('fair');
-                hdopWarning.style.display = 'none';
-            } else {
-                hdopElement.classList.add('poor');
-                hdopWarning.style.display = 'inline';
-                hdopWarning.textContent = '⚠️ Poor signal';
-            }
-        } else {
-            hdopElement.textContent = '--';
-            hdopElement.className = 'hdop-value';
-            hdopWarning.style.display = 'none';
+        // Update coordinates
+        const coordsElement = document.getElementById('coordinates');
+        if (coordsElement) {
+            coordsElement.textContent = `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}`;
         }
         
-        // Update signal quality assessment
-        this.updateSignalQuality(position.satellites, hdop);
+        // Update satellites count
+        const satElement = document.getElementById('satellites-count');
+        if (satElement) {
+            satElement.textContent = position.satellites || '--';
+        }
         
-        document.getElementById('speed').textContent = position.speed_knots ? 
-            `${position.speed_knots.toFixed(1)} knots` : '-- knots';
-        document.getElementById('heading').textContent = position.heading ? 
-            `${position.heading.toFixed(0)}°` : '--°';
+        // Update RTK status badge
+        this.updateRTKBadge(this.getRTKStatusClass(position.rtk_status), position.rtk_status);
         
-        // Update RTK status in info panel
-        this.updateRTKStatus(position.rtk_status);
+        // Update HDOP
+        const hdopElement = document.getElementById('hdop');
+        if (hdopElement && position.hdop) {
+            hdopElement.textContent = position.hdop.toFixed(1);
+            hdopElement.className = `stat-value ${this.getHDOPClass(position.hdop)}`;
+        }
         
-        // Update status indicator
-        this.updateStatusIndicator(this.getStatusClass(position.rtk_status), position.rtk_status);
+        // Update RTK fix status
+        const rtkFixElement = document.getElementById('rtk-fix-status');
+        if (rtkFixElement) {
+            rtkFixElement.textContent = position.rtk_status || '--';
+            rtkFixElement.className = `stat-value ${this.getRTKStatusClass(position.rtk_status)}`;
+        }
+        
+        // Update speed
+        const speedElement = document.getElementById('speed');
+        if (speedElement) {
+            speedElement.textContent = position.speed_knots ? 
+                `${position.speed_knots.toFixed(1)} węzłów` : '-- węzłów';
+        }
+        
+        // Update heading
+        const headingElement = document.getElementById('heading');
+        if (headingElement) {
+            headingElement.textContent = position.heading ? 
+                `${position.heading.toFixed(0)}°` : '--°';
+        }
         
         // Update last update time
         if (position.timestamp) {
-            const time = new Date(position.timestamp).toLocaleTimeString();
-            document.getElementById('last-update').textContent = time;
+            const updateElement = document.getElementById('last-update');
+            if (updateElement) {
+                const time = new Date(position.timestamp).toLocaleTimeString('pl-PL');
+                updateElement.textContent = time;
+            }
         }
     }
     
     updateTrackInfo(trackData) {
-        document.getElementById('track-points').textContent = trackData.points.length;
-        document.getElementById('session-id').textContent = trackData.session_id || '--';
+        const pointsElement = document.getElementById('track-points');
+        if (pointsElement) {
+            pointsElement.textContent = trackData.points.length;
+        }
+        
+        const sessionElement = document.getElementById('session-id');
+        if (sessionElement) {
+            sessionElement.textContent = trackData.session_id || '--';
+        }
     }
     
     updateSystemStatus(status) {
-        // Update connection indicators
-        const gpsStatus = status.gps_connected;
-        const ntripStatus = status.ntrip_connected;
-        
-        // Update connection dots in header
-        this.updateConnectionDot('gps-dot', gpsStatus);
-        this.updateConnectionDot('ntrip-dot', ntripStatus);
-        
-        // Update connection status text in info panel
-        document.getElementById('gps-status').textContent = gpsStatus ? 'Connected' : 'Disconnected';
-        document.getElementById('gps-status').className = `connection-status-text ${gpsStatus ? 'connected' : 'disconnected'}`;
-        
-        document.getElementById('ntrip-status').textContent = ntripStatus ? 'Connected' : 'Disconnected';
-        document.getElementById('ntrip-status').className = `connection-status-text ${ntripStatus ? 'connected' : 'disconnected'}`;
-        
-        // Update RTK-FIX indicator
-        const rtkFixElement = document.getElementById('rtk-fix-status');
-        if (rtkFixElement && status.hasOwnProperty('rtk_fix_available')) {
-            rtkFixElement.textContent = status.rtk_fix_status || 'Unavailable';
-            rtkFixElement.className = `rtk-fix-indicator ${status.rtk_fix_available ? 'available' : 'unavailable'}`;
-        }
+        // Update connection dots
+        this.updateConnectionDot('gps-dot', status.gps_connected);
+        this.updateConnectionDot('ntrip-dot', status.ntrip_connected);
         
         // Update system status
-        document.getElementById('system-status').textContent = status.system_mode || status.rtk_status || 'Unknown';
-        
-        console.log('System status updated:', status);
+        const systemElement = document.getElementById('system-status');
+        if (systemElement) {
+            systemElement.textContent = status.system_mode || status.rtk_status || 'Nieznany';
+        }
     }
     
     updateConnectionDot(elementId, isConnected) {
         const dot = document.getElementById(elementId);
         if (dot) {
-            dot.className = `connection-dot ${isConnected ? 'connected' : 'disconnected'}`;
+            dot.className = `conn-dot ${isConnected ? 'connected' : 'disconnected'}`;
         }
     }
     
-    updateRTKStatus(rtkStatus) {
-        const statusElement = document.getElementById('rtk-fix-status');
-        const badgeElement = document.getElementById('rtk-fix-badge');
+    updateRTKBadge(statusClass, statusText) {
+        const badge = document.getElementById('rtk-status-badge');
+        const textElement = document.getElementById('rtk-status-text');
         
-        if (statusElement) {
-            statusElement.textContent = rtkStatus || '--';
-            statusElement.className = `rtk-status-value ${this.getRTKStatusClass(rtkStatus)}`;
-        }
-        
-        // Show/hide RTK Fixed badge
-        if (badgeElement) {
-            if (rtkStatus === 'RTK Fixed') {
-                badgeElement.style.display = 'inline-block';
-                badgeElement.textContent = '🎯 RTK FIXED';
-            } else if (rtkStatus === 'RTK Float') {
-                badgeElement.style.display = 'inline-block';
-                badgeElement.textContent = '📍 RTK FLOAT';
-                badgeElement.style.backgroundColor = '#ffc107';
-            } else {
-                badgeElement.style.display = 'none';
-            }
+        if (badge && textElement) {
+            badge.className = `rtk-badge ${statusClass}`;
+            textElement.textContent = statusText || 'NIEZNANY';
         }
     }
     
     getRTKStatusClass(rtkStatus) {
-        const statusClassMap = {
+        const statusMap = {
             'RTK Fixed': 'rtk-fixed',
             'RTK Float': 'rtk-float',
             'DGPS': 'single',
@@ -517,142 +451,53 @@ class RTKMowerMap {
             'No Fix': 'no-fix'
         };
         
-        return statusClassMap[rtkStatus] || 'no-fix';
+        return statusMap[rtkStatus] || 'no-fix';
     }
     
-    updateSignalQuality(satellites, hdop) {
-        const qualityElement = document.getElementById('signal-quality');
-        
-        if (!satellites || !hdop) {
-            qualityElement.textContent = '--';
-            qualityElement.className = 'signal-quality';
-            return;
-        }
-        
-        let quality, className;
-        
-        // Signal quality assessment based on satellites and HDOP
-        if (satellites >= 12 && hdop <= 2.0) {
-            quality = 'Excellent';
-            className = 'excellent';
-        } else if (satellites >= 8 && hdop <= 3.0) {
-            quality = 'Good';
-            className = 'good';
-        } else if (satellites >= 6 && hdop <= 5.0) {
-            quality = 'Fair';
-            className = 'fair';
-        } else {
-            quality = 'Poor';
-            className = 'poor';
-        }
-        
-        qualityElement.textContent = quality;
-        qualityElement.className = `signal-quality ${className}`;
-        
-        // Add additional info for poor signal
-        if (className === 'poor') {
-            if (hdop > 5.0) {
-                quality += ' (High HDOP)';
-            }
-            if (satellites < 6) {
-                quality += ' (Few sats)';
-            }
-            qualityElement.textContent = quality;
-        }
-    }
-    
-    updateStatusIndicator(statusClass, statusText) {
-        const dot = document.getElementById('status-dot');
-        const text = document.getElementById('status-text');
-        
-        // Remove all status classes
-        dot.className = 'status-dot';
-        
-        // Add new status class
-        if (statusClass) {
-            dot.classList.add(statusClass);
-        }
-        
-        // Update text
-        text.textContent = statusText || 'Unknown';
-    }
-    
-    getStatusClass(rtkStatus) {
-        const statusMap = {
-            'RTK Fixed': 'rtk-fixed',
-            'RTK Float': 'rtk-float',
-            'DGPS': 'connected',
-            'Single': 'single',
-            'No Fix': 'disconnected'
-        };
-        
-        return statusMap[rtkStatus] || 'disconnected';
+    getHDOPClass(hdop) {
+        if (hdop <= 2.0) return 'good';
+        if (hdop <= 5.0) return 'fair';
+        return 'poor';
     }
     
     createPopupContent(position) {
         return `
             <div>
-                <h4>🚜 RTK Mower</h4>
+                <h4>🛸 RTK ROVER</h4>
                 <p><strong>Status:</strong> ${position.rtk_status}</p>
-                <p><strong>Position:</strong> ${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}</p>
-                <p><strong>Altitude:</strong> ${position.altitude.toFixed(1)}m</p>
-                <p><strong>Satellites:</strong> ${position.satellites}</p>
-                <p><strong>HDOP:</strong> ${position.hdop.toFixed(1)}</p>
-                ${position.speed_knots ? `<p><strong>Speed:</strong> ${position.speed_knots.toFixed(1)} knots</p>` : ''}
-                ${position.heading ? `<p><strong>Heading:</strong> ${position.heading.toFixed(0)}°</p>` : ''}
+                <p><strong>Pozycja:</strong> ${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}</p>
+                <p><strong>Wysokość:</strong> ${position.altitude ? position.altitude.toFixed(1) + 'm' : '--'}</p>
+                <p><strong>Satelity:</strong> ${position.satellites || '--'}</p>
+                <p><strong>HDOP:</strong> ${position.hdop ? position.hdop.toFixed(1) : '--'}</p>
+                ${position.speed_knots ? `<p><strong>Prędkość:</strong> ${position.speed_knots.toFixed(1)} węzłów</p>` : ''}
+                ${position.heading ? `<p><strong>Kierunek:</strong> ${position.heading.toFixed(0)}°</p>` : ''}
             </div>
         `;
     }
     
-    createFollowControl() {
-        const self = this;
-        const FollowControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                const container = L.DomUtil.create('div', 'leaflet-control leaflet-control-follow');
-                const btn = L.DomUtil.create('button', 'follow-btn', container);
-                btn.type = 'button';
-                btn.title = 'Toggle follow rover';
-                btn.innerText = 'Follow: On';
-                
-                // Prevent map drag on button interaction
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.on(btn, 'click', function() {
-                    self.setFollowMode(!self.followMode);
-                });
-                
-                self._followBtn = btn;
-                return container;
-            }
-        });
-        this.map.addControl(new FollowControl());
-        this.updateFollowControlUI();
-    }
-    
     setFollowMode(on) {
         this.followMode = !!on;
-        if (this.followMode) {
-            // Re-enable following and gently center if we have a position
-            if (this.currentMarker) {
-                const ll = this.currentMarker.getLatLng();
-                this.map.panTo(ll, { animate: true });
-            }
+        if (this.followMode && this.currentMarker) {
+            const ll = this.currentMarker.getLatLng();
+            this.map.panTo(ll, { animate: true });
         }
-        this.updateFollowControlUI();
+        this.updateControlsUI();
     }
     
-    updateFollowControlUI() {
-        if (this._followBtn) {
-            this._followBtn.innerText = this.followMode ? 'Follow: On' : 'Follow: Off';
-            this._followBtn.classList.toggle('on', this.followMode);
-            this._followBtn.classList.toggle('off', !this.followMode);
+    setRecordTrack(on) {
+        this.recordTrack = !!on;
+        if (this.recordTrack && this.currentMarker) {
+            const ll = this.currentMarker.getLatLng();
+            this.appendTrackPointIfNeeded(ll.lat, ll.lng);
         }
+        this.updateControlsUI();
     }
     
     appendTrackPointIfNeeded(lat, lon) {
         const ll = L.latLng(lat, lon);
         const pts = this.localTrackPoints;
         const last = pts.length ? L.latLng(pts[pts.length - 1].lat, pts[pts.length - 1].lon) : null;
+        
         if (!last || last.distanceTo(ll) >= this.minTrackPointDistance) {
             pts.push({ lat, lon });
             this.drawPolyline.setLatLngs(pts.map(p => [p.lat, p.lon]));
@@ -664,67 +509,43 @@ class RTKMowerMap {
         if (this.drawPolyline) {
             this.drawPolyline.setLatLngs([]);
         }
-        // Optional: reset points counter in UI if używane
+        this.updateControlsUI();
     }
     
-    setRecordTrack(on) {
-        this.recordTrack = !!on;
-        this.updateTrackControlsUI();
-        if (this.recordTrack && this.currentMarker) {
-            const ll = this.currentMarker.getLatLng();
-            this.appendTrackPointIfNeeded(ll.lat, ll.lng);
-        }
-    }
-    
-    createTrackControls() {
-        const self = this;
-        const TrackControl = L.Control.extend({
-            options: { position: 'topleft' },
-            onAdd: function() {
-                const container = L.DomUtil.create('div', 'leaflet-control leaflet-control-track');
-                const toggle = L.DomUtil.create('button', 'track-btn', container);
-                toggle.type = 'button';
-                toggle.title = 'Toggle track recording';
-                toggle.innerText = 'Track: Off';
-                
-                const clear = L.DomUtil.create('button', 'track-clear-btn', container);
-                clear.type = 'button';
-                clear.title = 'Clear local track';
-                clear.innerText = 'Clear';
-                
-                L.DomEvent.disableClickPropagation(container);
-                L.DomEvent.on(toggle, 'click', function() {
-                    self.setRecordTrack(!self.recordTrack);
-                });
-                L.DomEvent.on(clear, 'click', function() {
-                    self.clearLocalTrack();
-                });
-                
-                self._trackToggleBtn = toggle;
-                self._trackClearBtn = clear;
-                return container;
+    updateControlsUI() {
+        // Follow button
+        const followBtn = document.getElementById('follow-btn');
+        if (followBtn) {
+            followBtn.classList.toggle('active', this.followMode);
+            const textSpan = followBtn.querySelector('.btn-text');
+            if (textSpan) {
+                textSpan.textContent = this.followMode ? 'ŚLEDŹ' : 'ŚLEDŹ';
             }
-        });
-        this.map.addControl(new TrackControl());
-        this.updateTrackControlsUI();
-    }
-    
-    updateTrackControlsUI() {
-        if (this._trackToggleBtn) {
-            this._trackToggleBtn.innerText = this.recordTrack ? 'Track: On' : 'Track: Off';
-            this._trackToggleBtn.classList.toggle('on', this.recordTrack);
-            this._trackToggleBtn.classList.toggle('off', !this.recordTrack);
         }
-        if (this._trackClearBtn) {
-            this._trackClearBtn.disabled = this.localTrackPoints.length === 0;
+        
+        // Track button
+        const trackBtn = document.getElementById('track-btn');
+        if (trackBtn) {
+            trackBtn.classList.toggle('active', this.recordTrack);
+            const textSpan = trackBtn.querySelector('.btn-text');
+            if (textSpan) {
+                textSpan.textContent = this.recordTrack ? 'STOP' : 'ŚLAD';
+            }
+        }
+        
+        // Clear button
+        const clearBtn = document.getElementById('clear-btn');
+        if (clearBtn) {
+            clearBtn.disabled = this.localTrackPoints.length === 0;
+            clearBtn.style.opacity = clearBtn.disabled ? '0.5' : '1';
         }
     }
 }
 
-// Initialize map when page loads
+// Initialize when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('Initializing RTK Mower Map...');
-    window.rtkMap = new RTKMowerMap();
+    console.log('Inicjalizacja RTK ROVER Map...');
+    window.rtkMap = new RTKRoverMap();
 });
 
 // Cleanup on page unload

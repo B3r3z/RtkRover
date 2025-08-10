@@ -1,206 +1,599 @@
+/* =================================================
+   RTK ROVER - Neo-Brutalist Design System
+   Palette: Beiges, Grays + Teal Accent
+   ================================================= */
+
 :root {
-  --bg: #FAFAFA;
-  --surface: #FFFFFF;
-  --text: #111111;
-  --muted: #E5E7EB;       /* neutral gray for fills */
-  --muted-2: #F3F4F6;     /* lighter neutral */
-  --border: #111111;      /* hard edges */
-  --accent: #0EA5E9;      /* single, calm accent */
-  --accent-weak: #E0F2FE; /* pale accent background */
-  --warn: #FACC15;        /* soft amber */
+  /* Neo-Brutalist Color Palette */
+  --bg-primary: #F5F5DC;        /* Warm beige background */
+  --bg-secondary: #E8E8E8;      /* Light gray surfaces */
+  --bg-tertiary: #D3D3D3;       /* Medium gray fills */
+  
+  --text-primary: #2C2C2C;      /* Dark charcoal text */
+  --text-secondary: #5A5A5A;    /* Medium gray text */
+  --text-inverse: #FFFFFF;      /* White text on dark */
+  
+  --accent-teal: #2DD4BF;       /* Primary teal accent */
+  --accent-dark: #0F766E;       /* Dark teal for contrast */
+  --accent-light: #CCFBF1;      /* Light teal backgrounds */
+  
+  --status-success: #10B981;    /* Success green */
+  --status-warning: #F59E0B;    /* Warning amber */
+  --status-error: #EF4444;      /* Error red */
+  --status-inactive: #9CA3AF;   /* Inactive gray */
+  
+  --border-thick: 4px;          /* Thick brutalist borders */
+  --border-medium: 3px;         /* Medium borders */
+  --border-thin: 2px;           /* Thin borders */
+  
+  --shadow-brutal: 6px 6px 0px var(--text-primary);
+  --shadow-small: 3px 3px 0px var(--text-primary);
+  
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+  --font-weight-normal: 400;
+  --font-weight-bold: 700;
+  --font-weight-black: 800;
 }
 
-/* Base */
+/* =================================================
+   RESET & BASE STYLES
+   ================================================= */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
 body {
-  background-color: var(--bg);
-  color: var(--text);
-  font-weight: 500;
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-normal);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.4;
+  overflow-x: hidden;
 }
 
-.container { background-color: var(--bg); }
+/* =================================================
+   MAIN APP LAYOUT
+   ================================================= */
 
-/* Header */
-.header {
-  background-color: var(--surface);
-  color: var(--text);
-  border-bottom: 2px solid var(--border);
-  box-shadow: none;
-}
-.header h1 { letter-spacing: 0.5px; color: var(--text); }
-
-/* Status panel */
-.status-panel {
-  background-color: var(--surface);
-  border: 2px solid var(--border);
-  box-shadow: none;
-}
-.status-indicator {
-  background-color: var(--surface);
-  color: var(--text);
-  border: 2px solid var(--border);
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-/* RTK fixed badge - calm */
-.rtk-fix-badge {
-  background-color: var(--accent-weak);
-  color: var(--text);
-  border-color: var(--border);
-  animation: none;
+/* =================================================
+   STATUS BAR (TOP)
+   ================================================= */
+
+.status-bar {
+  background-color: var(--bg-secondary);
+  border-bottom: var(--border-thick) solid var(--text-primary);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-brutal);
+  position: relative;
+  z-index: 1000;
 }
 
-/* Connection items */
-.connection-item {
-  background-color: var(--surface);
-  border: 2px solid var(--border);
-}
-.connection-dot { background-color: var(--muted); border-color: var(--border); }
-.connection-dot.connected { background-color: var(--accent); }
-.connection-dot.disconnected { background-color: var(--muted-2); }
-
-/* Global status dot mapping */
-.status-dot { background-color: var(--muted); border-color: var(--border); box-shadow: none; }
-.status-dot.connected,
-.status-dot.rtk-fixed { background-color: var(--accent); }
-.status-dot.rtk-float { background-color: var(--warn); }
-.status-dot.single { background-color: #9CA3AF; }
-.status-dot.disconnected { background-color: var(--muted-2); }
-
-/* Coordinates pill */
-.coords-display {
-  background-color: var(--border);
-  color: #FFFFFF;
-  border-color: var(--border);
+.status-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-/* Map container */
-.map-container { border: 2px solid var(--border); }
-#map { filter: none; }
+.rover-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-/* Info panel */
+.rover-icon {
+  font-size: 32px;
+  filter: drop-shadow(2px 2px 0px var(--text-primary));
+}
+
+.rover-title h1 {
+  font-size: 28px;
+  font-weight: var(--font-weight-black);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  text-shadow: 2px 2px 0px var(--bg-primary);
+}
+
+.position-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--text-primary);
+  color: var(--text-inverse);
+  padding: 8px 16px;
+  border: var(--border-medium) solid var(--text-primary);
+  box-shadow: var(--shadow-small);
+}
+
+.position-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 1px;
+  margin-bottom: 2px;
+}
+
+.position-coords {
+  font-size: 14px;
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+.rtk-badge-container {
+  display: flex;
+  align-items: center;
+}
+
+.rtk-badge {
+  padding: 8px 16px;
+  border: var(--border-medium) solid var(--text-primary);
+  font-weight: var(--font-weight-bold);
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-small);
+  transition: all 0.2s ease;
+}
+
+.rtk-badge.rtk-fixed {
+  background-color: var(--status-success);
+  color: var(--text-inverse);
+}
+
+.rtk-badge.rtk-float {
+  background-color: var(--status-warning);
+  color: var(--text-primary);
+}
+
+.rtk-badge.single {
+  background-color: var(--status-inactive);
+  color: var(--text-inverse);
+}
+
+.rtk-badge.no-fix {
+  background-color: var(--status-error);
+  color: var(--text-inverse);
+}
+
+.connections-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.connection-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-tertiary);
+  padding: 6px 12px;
+  border: var(--border-thin) solid var(--text-primary);
+  font-size: 11px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.conn-dot {
+  width: 12px;
+  height: 12px;
+  border: var(--border-thin) solid var(--text-primary);
+  background-color: var(--status-inactive);
+  transition: background-color 0.3s ease;
+}
+
+.conn-dot.connected {
+  background-color: var(--status-success);
+}
+
+.conn-dot.disconnected {
+  background-color: var(--status-error);
+}
+
+.sat-count {
+  min-width: 20px;
+  text-align: center;
+  font-weight: var(--font-weight-bold);
+  font-size: 12px;
+}
+
+/* =================================================
+   MAP SECTION
+   ================================================= */
+
+.map-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.map-wrapper {
+  flex: 1;
+  position: relative;
+  border: var(--border-thick) solid var(--text-primary);
+  margin: 0 20px;
+  box-shadow: var(--shadow-brutal);
+}
+
+.map-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
+
+.map-controls {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-secondary);
+  border: var(--border-medium) solid var(--text-primary);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-bold);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow-small);
+  transition: all 0.2s ease;
+  color: var(--text-primary);
+  min-width: 80px;
+}
+
+.control-btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0px var(--text-primary);
+}
+
+.control-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0px var(--text-primary);
+}
+
+.control-btn.active {
+  background-color: var(--accent-teal);
+  color: var(--text-primary);
+}
+
+.control-btn.track-btn.active {
+  background-color: var(--status-warning);
+}
+
+.btn-icon {
+  font-size: 14px;
+}
+
+.btn-text {
+  font-size: 10px;
+}
+
+/* =================================================
+   INFO PANEL (BOTTOM)
+   ================================================= */
+
 .info-panel {
-  background-color: var(--muted-2);
-  color: var(--text);
-  border-top: 2px solid var(--border);
-  box-shadow: none;
-  max-height: 160px;
-}
-.info-section { background-color: var(--surface); border: 2px solid var(--border); }
-.info-section:nth-child(odd) { background-color: var(--surface); }
-.info-section h3 { border-bottom: 2px solid var(--border); color: var(--text); }
-
-/* Info rows */
-.info-row span:first-child { color: #4B5563; }
-.info-row span:last-child { color: var(--text); }
-
-/* RTK Status badges */
-.rtk-status-value { border: 2px solid var(--border); }
-.rtk-status-value.rtk-fixed { background-color: var(--accent-weak); color: var(--text); }
-.rtk-status-value.rtk-float { background-color: #FEF3C7; color: var(--text); }
-.rtk-status-value.single { background-color: #E5E7EB; color: var(--text); }
-.rtk-status-value.no-fix { background-color: var(--muted-2); color: var(--text); }
-
-/* RTK-FIX Indicator */
-.rtk-fix-indicator { border-color: var(--border); }
-.rtk-fix-indicator.available { background-color: var(--accent-weak); color: var(--text); }
-.rtk-fix-indicator.unavailable { background-color: var(--muted-2); color: var(--text); }
-
-/* Connection texts */
-.connection-status-text.connected {
-  background-color: var(--accent-weak);
-  color: var(--text);
-  border: 2px solid var(--border);
-}
-.connection-status-text.disconnected {
-  background-color: var(--muted-2);
-  color: var(--text);
-  border: 2px solid var(--border);
+  background-color: var(--bg-secondary);
+  border-top: var(--border-thick) solid var(--text-primary);
+  padding: 20px;
+  box-shadow: 0px -6px 0px var(--text-primary);
 }
 
-/* HDOP + Signal quality */
-.hdop-value.good { background-color: var(--accent-weak); color: var(--text); border: 2px solid var(--border); }
-.hdop-value.fair { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); }
-.hdop-value.poor { background-color: var(--muted-2); color: var(--text); border: 2px solid var(--border); }
-
-.hdop-warning { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); animation: none; }
-
-.signal-quality.excellent { background-color: var(--accent-weak); color: var(--text); border: 2px solid var(--border); }
-.signal-quality.good { background-color: #E5F6FD; color: var(--text); border: 2px solid var(--border); }
-.signal-quality.fair { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); }
-.signal-quality.poor { background-color: var(--muted-2); color: var(--text); border: 2px solid var(--border); }
-
-/* Leaflet popups */
-.leaflet-popup-content { background-color: var(--surface); color: var(--text); border: 2px solid var(--border); }
-.leaflet-popup-content h4 { border-bottom: 2px solid var(--border); }
-.leaflet-popup-content-wrapper { background-color: var(--surface); border: 2px solid var(--border); border-radius: 0 !important; box-shadow: none; }
-.leaflet-popup-tip { background-color: var(--surface); border: 2px solid var(--border); box-shadow: none; }
-
-/* Loading indicator - calmer */
-.loading {
-  width: 18px; height: 18px;
-  border: 2px solid var(--muted);
-  border-top-color: var(--accent);
-  border-radius: 0;
-  box-shadow: none;
-}
-
-/* Focus states */
-.connection-item:focus,
-.rtk-fix-indicator:focus,
-.connection-status-text:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Follow control */
-.leaflet-control-follow {
-  background: var(--surface);
-  border: 2px solid var(--border);
-  padding: 4px;
-}
-.leaflet-control-follow .follow-btn {
-  appearance: none;
-  background: var(--surface);
-  color: var(--text);
-  border: 2px solid var(--border);
-  padding: 6px 10px;
-  font-family: inherit;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  cursor: pointer;
-}
-.leaflet-control-follow .follow-btn.on {
-  background: var(--accent-weak);
-}
-.leaflet-control-follow .follow-btn.off {
-  background: var(--muted-2);
-}
-.leaflet-control-follow .follow-btn:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Track controls */
-.leaflet-control-track {
-  background: var(--surface);
-  border: 2px solid var(--border);
-  padding: 4px;
+.info-grid {
   display: grid;
-  gap: 4px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
 }
-.leaflet-control-track .track-btn,
-.leaflet-control-track .track-clear-btn {
-  appearance: none;
-  background: var(--surface);
-  color: var(--text);
-  border: 2px solid var(--border);
-  padding: 6px 10px;
-  font-family: inherit;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  cursor: pointer;
+
+.info-card {
+  background-color: var(--bg-primary);
+  border: var(--border-medium) solid var(--text-primary);
+  box-shadow: var(--shadow-small);
+  transition: transform 0.2s ease;
 }
-.leaflet-control-track .track-btn.on { background: var(--accent-weak); }
-.leaflet-control-track .track-btn.off { background: var(--muted-2); }
-.leaflet-control-track .track-clear-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.leaflet-control-track .track-btn:focus,
-.leaflet-control-track .track-clear-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.info-card:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px var(--text-primary);
+}
+
+.card-header {
+  background-color: var(--bg-tertiary);
+  border-bottom: var(--border-thin) solid var(--text-primary);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-icon {
+  font-size: 16px;
+}
+
+.card-header h3 {
+  font-size: 11px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.card-content {
+  padding: 12px;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.stat-row:last-child {
+  margin-bottom: 0;
+}
+
+.stat-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-normal);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* =================================================
+   STATUS-SPECIFIC STYLES
+   ================================================= */
+
+.stat-value.rtk-fixed {
+  background-color: var(--status-success);
+  color: var(--text-inverse);
+}
+
+.stat-value.rtk-float {
+  background-color: var(--status-warning);
+  color: var(--text-primary);
+}
+
+.stat-value.single {
+  background-color: var(--status-inactive);
+  color: var(--text-inverse);
+}
+
+.stat-value.no-fix {
+  background-color: var(--status-error);
+  color: var(--text-inverse);
+}
+
+.stat-value.good {
+  background-color: var(--status-success);
+  color: var(--text-inverse);
+}
+
+.stat-value.fair {
+  background-color: var(--status-warning);
+  color: var(--text-primary);
+}
+
+.stat-value.poor {
+  background-color: var(--status-error);
+  color: var(--text-inverse);
+}
+
+/* =================================================
+   LEAFLET MAP CUSTOMIZATIONS
+   ================================================= */
+
+.leaflet-control-container {
+  display: none; /* Hide default leaflet controls */
+}
+
+/* Custom rover marker */
+.rover-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--accent-teal);
+  border: var(--border-medium) solid var(--text-primary);
+  border-radius: 50%;
+  box-shadow: var(--shadow-small);
+  font-size: 20px;
+  text-align: center;
+}
+
+/* Popup styling */
+.leaflet-popup-content-wrapper {
+  background-color: var(--bg-secondary);
+  border: var(--border-medium) solid var(--text-primary);
+  border-radius: 0;
+  box-shadow: var(--shadow-small);
+  font-family: var(--font-mono);
+}
+
+.leaflet-popup-content {
+  margin: 12px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.leaflet-popup-content h4 {
+  font-weight: var(--font-weight-bold);
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--text-primary);
+  padding-bottom: 4px;
+}
+
+.leaflet-popup-tip {
+  background-color: var(--bg-secondary);
+  border: var(--border-medium) solid var(--text-primary);
+  box-shadow: none;
+}
+
+/* Track lines */
+.leaflet-interactive {
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* =================================================
+   RESPONSIVE DESIGN
+   ================================================= */
+
+@media (max-width: 768px) {
+  .status-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .rover-title h1 {
+    font-size: 24px;
+  }
+  
+  .position-display {
+    align-self: stretch;
+    text-align: center;
+  }
+  
+  .map-wrapper {
+    margin: 0 12px;
+  }
+  
+  .map-controls {
+    top: 12px;
+    right: 12px;
+  }
+  
+  .control-btn {
+    padding: 8px 10px;
+    min-width: 70px;
+  }
+  
+  .info-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .info-panel {
+    padding: 16px 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .rover-title h1 {
+    font-size: 20px;
+    letter-spacing: 1px;
+  }
+  
+  .connections-grid {
+    justify-content: center;
+  }
+  
+  .map-controls {
+    flex-direction: row;
+    top: auto;
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    justify-content: space-between;
+  }
+  
+  .control-btn {
+    flex: 1;
+    justify-content: center;
+    min-width: auto;
+  }
+}
+
+/* =================================================
+   ANIMATIONS & INTERACTIONS
+   ================================================= */
+
+@keyframes pulse-teal {
+  0%, 100% { 
+    background-color: var(--accent-teal); 
+  }
+  50% { 
+    background-color: var(--accent-dark); 
+  }
+}
+
+.rtk-badge.rtk-fixed {
+  animation: pulse-teal 2s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.5; }
+}
+
+.conn-dot.disconnected {
+  animation: blink 1s infinite;
+}
+
+/* Focus states for accessibility */
+.control-btn:focus,
+button:focus {
+  outline: 3px solid var(--accent-teal);
+  outline-offset: 2px;
+}
+
+/* Loading states */
+.loading {
+  position: relative;
+}
+
+.loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border: 3px solid var(--bg-tertiary);
+  border-top: 3px solid var(--accent-teal);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

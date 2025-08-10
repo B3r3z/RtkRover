@@ -1,115 +1,178 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RTK Mower - GPS Tracking</title>
+    <title>RTK ROVER - GPS Tracking</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1>GPS-RTK rover</h1>
-            <div class="status-panel">
-                <div id="rtk-status" class="status-indicator">
-                    <span class="status-dot" id="status-dot"></span>
-                    <span id="status-text">Connecting...</span>
-                    <span class="rtk-fix-badge" id="rtk-fix-badge" style="display: none;">RTK FIXED</span>
+    <div class="app">
+        
+        <!-- Top Status Bar -->
+        <div class="status-bar">
+            <div class="status-main">
+                <div class="rover-title">
+                    <span class="rover-icon">🛸</span>
+                    <h1>RTK ROVER</h1>
                 </div>
-                <div class="coords-display">
-                    <span id="coordinates">---.------ , ---.------</span>
+                
+                <div class="position-display">
+                    <span class="position-label">POZYCJA</span>
+                    <span id="coordinates" class="position-coords">---.------ , ---.------</span>
                 </div>
-                <div class="connection-status">
-                    <div class="connection-item">
-                        <span class="connection-dot" id="gps-dot"></span>
-                        <span>GPS</span>
-                    </div>
-                    <div class="connection-item">
-                        <span class="connection-dot" id="ntrip-dot"></span>
-                        <span>NTRIP</span>
+                
+                <div class="rtk-badge-container">
+                    <div id="rtk-status-badge" class="rtk-badge no-fix">
+                        <span id="rtk-status-text">ŁĄCZENIE...</span>
                     </div>
                 </div>
             </div>
-        </header>
-
-        <!-- Map Container -->
-        <div class="map-container">
-            <div id="map"></div>
+            
+            <div class="connections-grid">
+                <div class="connection-pill">
+                    <div id="gps-dot" class="conn-dot"></div>
+                    <span>GPS</span>
+                </div>
+                <div class="connection-pill">
+                    <div id="ntrip-dot" class="conn-dot"></div>
+                    <span>NTRIP</span>
+                </div>
+                <div class="connection-pill">
+                    <div id="satellites-count" class="sat-count">--</div>
+                    <span>SAT</span>
+                </div>
+            </div>
         </div>
 
-        <!-- Info Panel -->
+        <!-- Map Section -->
+        <div class="map-section">
+            <!-- Map Container -->
+            <div class="map-wrapper">
+                <div id="map" class="map-canvas"></div>
+                
+                <!-- Map Controls Overlay -->
+                <div class="map-controls">
+                    <button id="follow-btn" class="control-btn follow-btn active" title="Śledzenie rover-a">
+                        <span class="btn-icon">📍</span>
+                        <span class="btn-text">ŚLEDŹ</span>
+                    </button>
+                    
+                    <button id="track-btn" class="control-btn track-btn" title="Nagrywanie ścieżki">
+                        <span class="btn-icon">🛤️</span>
+                        <span class="btn-text">ŚLAD</span>
+                    </button>
+                    
+                    <button id="clear-btn" class="control-btn clear-btn" title="Wyczyść ścieżkę">
+                        <span class="btn-icon">🗑️</span>
+                        <span class="btn-text">WYCZYŚĆ</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Info Panel -->
         <div class="info-panel">
-            <div class="info-section">
-                <h3>RTK Status</h3>
-                <div class="info-row">
-                    <span>Fix Status:</span>
-                    <span id="rtk-fix-status" class="rtk-status-value">--</span>
+            <div class="info-grid">
+                
+                <!-- RTK Status Card -->
+                <div class="info-card rtk-card">
+                    <div class="card-header">
+                        <span class="card-icon">🎯</span>
+                        <h3>STATUS RTK</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="stat-row">
+                            <span class="stat-label">Fix Status</span>
+                            <span id="rtk-fix-status" class="stat-value">--</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Dokładność</span>
+                            <span id="hdop" class="stat-value">--</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span>RTK-FIX:</span>
-                    <span id="rtk-fix-indicator" class="rtk-fix-indicator">--</span>
+
+                <!-- GPS Data Card -->
+                <div class="info-card gps-card">
+                    <div class="card-header">
+                        <span class="card-icon">📡</span>
+                        <h3>DANE GPS</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="stat-row">
+                            <span class="stat-label">Prędkość</span>
+                            <span id="speed" class="stat-value">-- węzłów</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Kierunek</span>
+                            <span id="heading" class="stat-value">--°</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span>GPS Connection:</span>
-                    <span id="gps-status" class="connection-status-text">--</span>
+
+                <!-- Track Data Card -->
+                <div class="info-card track-card">
+                    <div class="card-header">
+                        <span class="card-icon">📊</span>
+                        <h3>ŚLAD</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="stat-row">
+                            <span class="stat-label">Punkty</span>
+                            <span id="track-points" class="stat-value">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Sesja</span>
+                            <span id="session-id" class="stat-value">--</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span>NTRIP Connection:</span>
-                    <span id="ntrip-status" class="connection-status-text">--</span>
+
+                <!-- System Status Card -->
+                <div class="info-card system-card">
+                    <div class="card-header">
+                        <span class="card-icon">⚡</span>
+                        <h3>SYSTEM</h3>
+                    </div>
+                    <div class="card-content">
+                        <div class="stat-row">
+                            <span class="stat-label">Status</span>
+                            <span id="system-status" class="stat-value">--</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Update</span>
+                            <span id="last-update" class="stat-value">--</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="info-row">
-                    <span>System Status:</span>
-                    <span id="system-status">--</span>
-                </div>
-            </div>
-            
-            <div class="info-section">
-                <h3>GPS Info</h3>
-                <div class="info-row">
-                    <span>Satellites:</span>
-                    <span id="satellites">--</span>
-                </div>
-                <div class="info-row">
-                    <span>HDOP:</span>
-                    <span id="hdop" class="hdop-value">--</span>
-                    <span id="hdop-warning" class="hdop-warning" style="display: none;">⚠️ Poor signal</span>
-                </div>
-                <div class="info-row">
-                    <span>Signal Quality:</span>
-                    <span id="signal-quality" class="signal-quality">--</span>
-                </div>
-                <div class="info-row">
-                    <span>Speed:</span>
-                    <span id="speed">-- knots</span>
-                </div>
-                <div class="info-row">
-                    <span>Heading:</span>
-                    <span id="heading">--°</span>
-                </div>
-            </div>
-            
-            <div class="info-section">
-                <h3>Track Info</h3>
-                <div class="info-row">
-                    <span>Points:</span>
-                    <span id="track-points">0</span>
-                </div>
-                <div class="info-row">
-                    <span>Session:</span>
-                    <span id="session-id">--</span>
-                </div>
-                <div class="info-row">
-                    <span>Last Update:</span>
-                    <span id="last-update">--</span>
-                </div>
+
             </div>
         </div>
+
+        <!-- Hidden elements for compatibility -->
+        <div style="display: none;">
+            <span id="gps-status"></span>
+            <span id="ntrip-status"></span>
+            <span id="rtk-fix-indicator"></span>
+            <span id="satellites"></span>
+            <span id="hdop-warning"></span>
+            <span id="signal-quality"></span>
+            <span id="status-dot"></span>
+            <span id="status-text"></span>
+            <span id="rtk-fix-badge"></span>
+        </div>
+
     </div>
 
     <!-- Leaflet JS -->
