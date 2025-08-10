@@ -1,8 +1,3 @@
-"""
-Flask application for RTK Mower
-Provides web interface and API endpoints for GPS tracking
-"""
-
 from flask import Flask, jsonify, render_template
 from datetime import datetime
 import logging

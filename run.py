@@ -99,7 +99,7 @@ def main():
     setup_logging()
     
     logger = logging.getLogger(__name__)
-    logger.info("🚜 RTK Mower Web Interface Starting...")
+    logger.info("Rover GPS-RTK starting...")
     
     try:
         # Validate environment
