@@ -1,496 +1,206 @@
-/* RTK Rover Neo-Brutalist Minimalist Interface */
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+:root {
+  --bg: #FAFAFA;
+  --surface: #FFFFFF;
+  --text: #111111;
+  --muted: #E5E7EB;       /* neutral gray for fills */
+  --muted-2: #F3F4F6;     /* lighter neutral */
+  --border: #111111;      /* hard edges */
+  --accent: #0EA5E9;      /* single, calm accent */
+  --accent-weak: #E0F2FE; /* pale accent background */
+  --warn: #FACC15;        /* soft amber */
 }
 
+/* Base */
 body {
-    font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-weight: 600;
-    background-color: #FAF9F6;
-    color: #2A2A2A;
-    line-height: 1.6;
+  background-color: var(--bg);
+  color: var(--text);
+  font-weight: 500;
 }
 
-.container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background-color: #FAF9F6;
-}
+.container { background-color: var(--bg); }
 
-/* Header - Neo-Brutal Minimalist */
+/* Header */
 .header {
-    background-color: #F5F5DC;
-    color: #2A2A2A;
-    padding: 1.5rem 2rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 4px solid #2A2A2A;
-    box-shadow: 0 4px 0 #C7B299;
+  background-color: var(--surface);
+  color: var(--text);
+  border-bottom: 2px solid var(--border);
+  box-shadow: none;
 }
+.header h1 { letter-spacing: 0.5px; color: var(--text); }
 
-.header h1 {
-    font-size: 1.8rem;
-    font-weight: 700;
-    color: #2A2A2A;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
+/* Status panel */
 .status-panel {
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    background-color: #FFFFFF;
-    padding: 1rem 1.5rem;
-    border: 3px solid #2A2A2A;
-    border-radius: 0;
-    box-shadow: 4px 4px 0 #C7B299;
+  background-color: var(--surface);
+  border: 2px solid var(--border);
+  box-shadow: none;
 }
-
 .status-indicator {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    background-color: #FFB5A7;
-    color: #2A2A2A;
-    padding: 0.5rem 1rem;
-    border: 2px solid #2A2A2A;
-    font-weight: 600;
-    font-size: 0.9rem;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border);
 }
 
+/* RTK fixed badge - calm */
 .rtk-fix-badge {
-    background-color: #FFB5A7;
-    color: #2A2A2A;
-    font-size: 0.8rem;
-    font-weight: 700;
-    padding: 0.25rem 0.75rem;
-    border: 2px solid #2A2A2A;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    animation: subtle-pulse 2s infinite;
+  background-color: var(--accent-weak);
+  color: var(--text);
+  border-color: var(--border);
+  animation: none;
 }
 
-@keyframes subtle-pulse {
-    0%, 100% { 
-        transform: scale(1);
-        box-shadow: 0 0 0 rgba(42, 42, 42, 0.7);
-    }
-    50% { 
-        transform: scale(1.05);
-        box-shadow: 0 0 0 4px rgba(42, 42, 42, 0.2);
-    }
-}
-
-.connection-status {
-    display: flex;
-    gap: 1.5rem;
-}
-
+/* Connection items */
 .connection-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #2A2A2A;
-    background-color: #F5F5DC;
-    padding: 0.4rem 0.8rem;
-    border: 2px solid #2A2A2A;
+  background-color: var(--surface);
+  border: 2px solid var(--border);
 }
+.connection-dot { background-color: var(--muted); border-color: var(--border); }
+.connection-dot.connected { background-color: var(--accent); }
+.connection-dot.disconnected { background-color: var(--muted-2); }
 
-.connection-dot {
-    width: 12px;
-    height: 12px;
-    background-color: #C7B299;
-    border: 2px solid #2A2A2A;
-}
+/* Global status dot mapping */
+.status-dot { background-color: var(--muted); border-color: var(--border); box-shadow: none; }
+.status-dot.connected,
+.status-dot.rtk-fixed { background-color: var(--accent); }
+.status-dot.rtk-float { background-color: var(--warn); }
+.status-dot.single { background-color: #9CA3AF; }
+.status-dot.disconnected { background-color: var(--muted-2); }
 
-.connection-dot.connected { 
-    background-color: #FFB5A7;
-}
-.connection-dot.disconnected { 
-    background-color: #D3D3D3;
-}
-
-.status-dot {
-    width: 16px;
-    height: 16px;
-    background-color: #C7B299;
-    border: 2px solid #2A2A2A;
-    transition: all 0.3s ease;
-}
-
-.status-dot.connected { 
-    background-color: #FFB5A7;
-}
-.status-dot.rtk-fixed { 
-    background-color: #FFB5A7;
-    box-shadow: 0 0 0 3px rgba(255, 181, 167, 0.3);
-}
-.status-dot.rtk-float { 
-    background-color: #F0E68C;
-}
-.status-dot.single { 
-    background-color: #DEB887;
-}
-.status-dot.disconnected { 
-    background-color: #D3D3D3;
-}
-
+/* Coordinates pill */
 .coords-display {
-    font-family: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
-    font-size: 1rem;
-    font-weight: 500;
-    background-color: #2A2A2A;
-    color: #FAF9F6;
-    padding: 0.75rem 1rem;
-    border: 2px solid #2A2A2A;
-    letter-spacing: 0.5px;
+  background-color: var(--border);
+  color: #FFFFFF;
+  border-color: var(--border);
 }
 
-/* Map Container - Neo-Brutal Minimalist */
-.map-container {
-    flex: 1;
-    position: relative;
-    border: 3px solid #2A2A2A;
-    border-top: 0;
-    background-color: #FFFFFF;
-}
+/* Map container */
+.map-container { border: 2px solid var(--border); }
+#map { filter: none; }
 
-#map {
-    width: 100%;
-    height: 100%;
-    filter: contrast(1.1) brightness(1.05);
-}
-
-/* Info Panel - Neo-Brutal Minimalist */
+/* Info panel */
 .info-panel {
-    background-color: #F5F5DC;
-    color: #2A2A2A;
-    padding: 1.5rem 2rem;
-    border-top: 3px solid #2A2A2A;
-    display: flex;
-    gap: 2rem;
-    max-height: 180px;
-    overflow-y: auto;
-    box-shadow: 0 -2px 0 #C7B299;
+  background-color: var(--muted-2);
+  color: var(--text);
+  border-top: 2px solid var(--border);
+  box-shadow: none;
+  max-height: 160px;
 }
+.info-section { background-color: var(--surface); border: 2px solid var(--border); }
+.info-section:nth-child(odd) { background-color: var(--surface); }
+.info-section h3 { border-bottom: 2px solid var(--border); color: var(--text); }
 
-.info-section {
-    flex: 1;
-    background-color: #FFFFFF;
-    padding: 1rem;
-    border: 2px solid #2A2A2A;
-}
+/* Info rows */
+.info-row span:first-child { color: #4B5563; }
+.info-row span:last-child { color: var(--text); }
 
-.info-section:nth-child(odd) {
-    background-color: #FFB5A7;
-}
+/* RTK Status badges */
+.rtk-status-value { border: 2px solid var(--border); }
+.rtk-status-value.rtk-fixed { background-color: var(--accent-weak); color: var(--text); }
+.rtk-status-value.rtk-float { background-color: #FEF3C7; color: var(--text); }
+.rtk-status-value.single { background-color: #E5E7EB; color: var(--text); }
+.rtk-status-value.no-fix { background-color: var(--muted-2); color: var(--text); }
 
-.info-section h3 {
-    margin-bottom: 0.75rem;
-    color: #2A2A2A;
-    font-size: 1.1rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid #2A2A2A;
-    padding-bottom: 0.5rem;
-}
+/* RTK-FIX Indicator */
+.rtk-fix-indicator { border-color: var(--border); }
+.rtk-fix-indicator.available { background-color: var(--accent-weak); color: var(--text); }
+.rtk-fix-indicator.unavailable { background-color: var(--muted-2); color: var(--text); }
 
-.info-row {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 0.4rem;
-    font-size: 0.9rem;
-    font-weight: 500;
-    padding: 0.2rem 0;
-}
-
-.info-row:hover {
-    background-color: rgba(42, 42, 42, 0.05);
-    padding: 0.2rem 0.5rem;
-    margin: 0.2rem -0.5rem;
-}
-
-.info-row span:first-child {
-    color: #666;
-    font-weight: 600;
-}
-
-.info-row span:last-child {
-    font-family: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
-    color: #2A2A2A;
-    font-weight: 600;
-}
-
-/* RTK Status - Neo-Brutal Minimalist */
-.rtk-status-value {
-    font-weight: 600;
-    padding: 0.3rem 0.6rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.9rem;
-}
-
-.rtk-status-value.rtk-fixed {
-    color: #2A2A2A;
-    background-color: #FFB5A7;
-}
-
-.rtk-status-value.rtk-float {
-    color: #2A2A2A;
-    background-color: #F0E68C;
-}
-
-.rtk-status-value.single {
-    color: #2A2A2A;
-    background-color: #DEB887;
-}
-
-.rtk-status-value.no-fix {
-    color: #2A2A2A;
-    background-color: #D3D3D3;
-}
-
-/* RTK-FIX Indicator - Neo-Brutal Minimalist */
-.rtk-fix-indicator {
-    font-weight: 600;
-    padding: 0.4rem 0.8rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.rtk-fix-indicator.available {
-    color: #2A2A2A;
-    background-color: #FFB5A7;
-}
-
-.rtk-fix-indicator.unavailable {
-    color: #2A2A2A;
-    background-color: #D3D3D3;
-}
-
+/* Connection texts */
 .connection-status-text.connected {
-    color: #2A2A2A;
-    background-color: #FFB5A7;
-    font-weight: 600;
-    padding: 0.3rem 0.6rem;
-    border: 2px solid #2A2A2A;
-    text-transform: uppercase;
-    font-size: 0.8rem;
-    letter-spacing: 0.5px;
+  background-color: var(--accent-weak);
+  color: var(--text);
+  border: 2px solid var(--border);
 }
-
 .connection-status-text.disconnected {
-    color: #2A2A2A;
-    background-color: #D3D3D3;
-    font-weight: 600;
-    padding: 0.3rem 0.6rem;
-    border: 2px solid #2A2A2A;
-    text-transform: uppercase;
-    font-size: 0.8rem;
-    letter-spacing: 0.5px;
+  background-color: var(--muted-2);
+  color: var(--text);
+  border: 2px solid var(--border);
 }
 
-/* HDOP and Signal Quality - Neo-Brutal Minimalist */
-.hdop-value.good {
-    color: #2A2A2A;
-    background-color: #FFB5A7;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
+/* HDOP + Signal quality */
+.hdop-value.good { background-color: var(--accent-weak); color: var(--text); border: 2px solid var(--border); }
+.hdop-value.fair { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); }
+.hdop-value.poor { background-color: var(--muted-2); color: var(--text); border: 2px solid var(--border); }
 
-.hdop-value.fair {
-    color: #2A2A2A;
-    background-color: #F0E68C;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
+.hdop-warning { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); animation: none; }
 
-.hdop-value.poor {
-    color: #2A2A2A;
-    background-color: #D3D3D3;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
+.signal-quality.excellent { background-color: var(--accent-weak); color: var(--text); border: 2px solid var(--border); }
+.signal-quality.good { background-color: #E5F6FD; color: var(--text); border: 2px solid var(--border); }
+.signal-quality.fair { background-color: #FEF3C7; color: var(--text); border: 2px solid var(--border); }
+.signal-quality.poor { background-color: var(--muted-2); color: var(--text); border: 2px solid var(--border); }
 
-.hdop-warning {
-    color: #2A2A2A;
-    font-size: 0.75rem;
-    margin-left: 0.5rem;
-    animation: gentle-blink 2s infinite;
-    font-weight: 600;
-    background-color: #F0E68C;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-}
+/* Leaflet popups */
+.leaflet-popup-content { background-color: var(--surface); color: var(--text); border: 2px solid var(--border); }
+.leaflet-popup-content h4 { border-bottom: 2px solid var(--border); }
+.leaflet-popup-content-wrapper { background-color: var(--surface); border: 2px solid var(--border); border-radius: 0 !important; box-shadow: none; }
+.leaflet-popup-tip { background-color: var(--surface); border: 2px solid var(--border); box-shadow: none; }
 
-@keyframes gentle-blink {
-    0%, 50% { 
-        opacity: 1;
-    }
-    51%, 100% { 
-        opacity: 0.6;
-    }
-}
-
-.signal-quality.excellent {
-    color: #2A2A2A;
-    background-color: #FFB5A7;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
-
-.signal-quality.good {
-    color: #2A2A2A;
-    background-color: #98FB98;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
-
-.signal-quality.fair {
-    color: #2A2A2A;
-    background-color: #F0E68C;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
-
-.signal-quality.poor {
-    color: #2A2A2A;
-    background-color: #D3D3D3;
-    font-weight: 600;
-    padding: 0.2rem 0.4rem;
-    border: 2px solid #2A2A2A;
-    font-size: 0.8rem;
-}
-
-/* Leaflet Customizations - Neo-Brutal Minimalist */
-.leaflet-popup-content {
-    margin: 12px 16px;
-    line-height: 1.5;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    font-weight: 500;
-    background-color: #FFFFFF;
-    color: #2A2A2A;
-    border: 2px solid #2A2A2A;
-    padding: 1rem;
-}
-
-.leaflet-popup-content h4 {
-    margin: 0 0 8px 0;
-    color: #2A2A2A;
-    font-size: 1.1rem;
-    font-weight: 700;
-    border-bottom: 2px solid #FFB5A7;
-    padding-bottom: 0.5rem;
-}
-
-.leaflet-popup-content-wrapper {
-    background-color: #FFFFFF;
-    border: 3px solid #2A2A2A;
-    border-radius: 0 !important;
-    box-shadow: 4px 4px 0 #C7B299;
-}
-
-.leaflet-popup-tip {
-    background-color: #FFFFFF;
-    border: 2px solid #2A2A2A;
-    border-radius: 0 !important;
-    box-shadow: 2px 2px 0 #C7B299;
-}
-
-/* Responsive Design - Neo-Brutal Minimalist */
-@media (max-width: 768px) {
-    .header {
-        flex-direction: column;
-        gap: 1rem;
-        text-align: center;
-        padding: 1rem;
-    }
-    
-    .header h1 {
-        font-size: 1.5rem;
-    }
-    
-    .status-panel {
-        flex-direction: column;
-        gap: 1rem;
-        padding: 1rem;
-    }
-    
-    .info-panel {
-        flex-direction: column;
-        gap: 1rem;
-        max-height: none;
-        padding: 1rem;
-    }
-    
-    .coords-display {
-        font-size: 0.9rem;
-        padding: 0.6rem;
-    }
-    
-    .rtk-fix-indicator {
-        font-size: 0.8rem;
-        padding: 0.4rem 0.6rem;
-    }
-}
-
-/* Loading Animation - Neo-Brutal Minimalist */
+/* Loading indicator - calmer */
 .loading {
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid #C7B299;
-    border-top: 3px solid #FFB5A7;
-    border-radius: 0;
-    animation: gentle-spin 1s linear infinite;
-    box-shadow: 2px 2px 0 rgba(42, 42, 42, 0.1);
+  width: 18px; height: 18px;
+  border: 2px solid var(--muted);
+  border-top-color: var(--accent);
+  border-radius: 0;
+  box-shadow: none;
 }
 
-@keyframes gentle-spin {
-    0% { 
-        transform: rotate(0deg);
-    }
-    100% { 
-        transform: rotate(360deg);
-    }
-}
-
-/* Additional subtle animations */
-.info-section {
-    transition: all 0.3s ease;
-}
-
-.info-section:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(42, 42, 42, 0.1);
-}
-
-/* Focus states for accessibility */
+/* Focus states */
 .connection-item:focus,
 .rtk-fix-indicator:focus,
 .connection-status-text:focus {
-    outline: 3px solid #FFB5A7;
-    outline-offset: 2px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
+
+/* Follow control */
+.leaflet-control-follow {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 4px;
+}
+.leaflet-control-follow .follow-btn {
+  appearance: none;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+.leaflet-control-follow .follow-btn.on {
+  background: var(--accent-weak);
+}
+.leaflet-control-follow .follow-btn.off {
+  background: var(--muted-2);
+}
+.leaflet-control-follow .follow-btn:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Track controls */
+.leaflet-control-track {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 4px;
+  display: grid;
+  gap: 4px;
+}
+.leaflet-control-track .track-btn,
+.leaflet-control-track .track-clear-btn {
+  appearance: none;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+.leaflet-control-track .track-btn.on { background: var(--accent-weak); }
+.leaflet-control-track .track-btn.off { background: var(--muted-2); }
+.leaflet-control-track .track-clear-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.leaflet-control-track .track-btn:focus,
+.leaflet-control-track .track-clear-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }

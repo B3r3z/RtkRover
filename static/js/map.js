@@ -12,7 +12,19 @@ class RTKMowerMap {
         this.trackPoints = [];
         this.currentPosition = null;
         this.updateInterval = null;
-        this.hasInitializedPosition = false; // Flag to prevent constant re-centering
+        this.hasInitializedPosition = false; // legacy flag
+        
+        // Follow/centering behavior
+        this.hasCenteredInitially = false;   // first auto-center done
+        this.userInteracted = false;         // user panned/zoomed
+        this.followMode = true;              // UI toggle
+        this.recenterPaddingRatio = 0.25;    // keep rover within inner bounds
+        
+        // Local track recording
+        this.recordTrack = false;
+        this.drawPolyline = null;
+        this.localTrackPoints = [];
+        this.minTrackPointDistance = 0.001; // meters, avoid noise
         
         // Error handling and retry logic
         this.consecutiveErrors = 0;
@@ -149,17 +161,30 @@ class RTKMowerMap {
             maxZoom: 19
         }).addTo(this.map);
         
-        // Track user interaction to prevent auto-centering
+        // Track user interaction to disable follow
         this.map.on('dragstart zoomstart', () => {
-            this.hasInitializedPosition = true;
+            this.userInteracted = true;
+            this.setFollowMode(false);
+            this.hasInitializedPosition = true; // keep legacy behavior
         });
         
-        // Initialize track polyline
+        // Initialize track polyline (server-provided) in muted color
         this.trackPolyline = L.polyline([], {
-            color: '#FFB5A7', // Use our accent color
-            weight: 4,
+            color: '#9CA3AF', // muted server track
+            weight: 3,
             opacity: 0.8
         }).addTo(this.map);
+        
+        // Local drawn track in accent color
+        this.drawPolyline = L.polyline([], {
+            color: '#0EA5E9',
+            weight: 4,
+            opacity: 0.9
+        }).addTo(this.map);
+        
+        // Add follow and track controls
+        this.createFollowControl();
+        this.createTrackControls();
         
         console.log('Map initialized');
     }
@@ -311,10 +336,30 @@ class RTKMowerMap {
         // Update popup content
         this.currentMarker.setPopupContent(this.createPopupContent(position));
         
-        // Center map only on very first fix
-        if (this.trackPoints.length === 0 && !this.hasInitializedPosition) {
-            this.map.setView([lat, lon], 18);
-            this.hasInitializedPosition = true;
+        // Local track recording
+        if (this.recordTrack) {
+            this.appendTrackPointIfNeeded(lat, lon);
+        }
+        
+        // Center behavior
+        if (!this.hasCenteredInitially) {
+            // First fix: one-time center without animation
+            this.map.setView([lat, lon], 17, { animate: false });
+            this.hasCenteredInitially = true;
+            this.hasInitializedPosition = true; // legacy flag for compatibility
+        } else if (this.followMode) {
+            // Only pan if rover is leaving inner bounds to avoid constant re-centering
+            try {
+                const bounds = this.map.getBounds();
+                // create inner bounds (shrink by padding ratio)
+                const inner = L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast()).pad(-this.recenterPaddingRatio);
+                if (!inner.contains([lat, lon])) {
+                    this.map.panTo([lat, lon], { animate: true });
+                }
+            } catch (e) {
+                // Fallback minimal re-center without fighting the user
+                this.map.panTo([lat, lon], { animate: true });
+            }
         }
     }
     
@@ -328,12 +373,13 @@ class RTKMowerMap {
         // Store points for reference
         this.trackPoints = points;
         
-        // Only fit bounds on very first track load and if user hasn't interacted with map
-        if (points.length > 10 && !this.hasInitializedPosition) {
+        // Fit bounds only once at the very beginning and only if user hasn't interacted
+        if (points.length > 10 && !this.hasCenteredInitially && !this.userInteracted) {
             try {
                 const bounds = this.trackPolyline.getBounds();
                 if (bounds.isValid()) {
                     this.map.fitBounds(bounds, { padding: [20, 20] });
+                    this.hasCenteredInitially = true;
                     this.hasInitializedPosition = true;
                 }
             } catch (e) {
@@ -556,6 +602,122 @@ class RTKMowerMap {
                 ${position.heading ? `<p><strong>Heading:</strong> ${position.heading.toFixed(0)}°</p>` : ''}
             </div>
         `;
+    }
+    
+    createFollowControl() {
+        const self = this;
+        const FollowControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                const container = L.DomUtil.create('div', 'leaflet-control leaflet-control-follow');
+                const btn = L.DomUtil.create('button', 'follow-btn', container);
+                btn.type = 'button';
+                btn.title = 'Toggle follow rover';
+                btn.innerText = 'Follow: On';
+                
+                // Prevent map drag on button interaction
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.on(btn, 'click', function() {
+                    self.setFollowMode(!self.followMode);
+                });
+                
+                self._followBtn = btn;
+                return container;
+            }
+        });
+        this.map.addControl(new FollowControl());
+        this.updateFollowControlUI();
+    }
+    
+    setFollowMode(on) {
+        this.followMode = !!on;
+        if (this.followMode) {
+            // Re-enable following and gently center if we have a position
+            if (this.currentMarker) {
+                const ll = this.currentMarker.getLatLng();
+                this.map.panTo(ll, { animate: true });
+            }
+        }
+        this.updateFollowControlUI();
+    }
+    
+    updateFollowControlUI() {
+        if (this._followBtn) {
+            this._followBtn.innerText = this.followMode ? 'Follow: On' : 'Follow: Off';
+            this._followBtn.classList.toggle('on', this.followMode);
+            this._followBtn.classList.toggle('off', !this.followMode);
+        }
+    }
+    
+    appendTrackPointIfNeeded(lat, lon) {
+        const ll = L.latLng(lat, lon);
+        const pts = this.localTrackPoints;
+        const last = pts.length ? L.latLng(pts[pts.length - 1].lat, pts[pts.length - 1].lon) : null;
+        if (!last || last.distanceTo(ll) >= this.minTrackPointDistance) {
+            pts.push({ lat, lon });
+            this.drawPolyline.setLatLngs(pts.map(p => [p.lat, p.lon]));
+        }
+    }
+    
+    clearLocalTrack() {
+        this.localTrackPoints = [];
+        if (this.drawPolyline) {
+            this.drawPolyline.setLatLngs([]);
+        }
+        // Optional: reset points counter in UI if używane
+    }
+    
+    setRecordTrack(on) {
+        this.recordTrack = !!on;
+        this.updateTrackControlsUI();
+        if (this.recordTrack && this.currentMarker) {
+            const ll = this.currentMarker.getLatLng();
+            this.appendTrackPointIfNeeded(ll.lat, ll.lng);
+        }
+    }
+    
+    createTrackControls() {
+        const self = this;
+        const TrackControl = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function() {
+                const container = L.DomUtil.create('div', 'leaflet-control leaflet-control-track');
+                const toggle = L.DomUtil.create('button', 'track-btn', container);
+                toggle.type = 'button';
+                toggle.title = 'Toggle track recording';
+                toggle.innerText = 'Track: Off';
+                
+                const clear = L.DomUtil.create('button', 'track-clear-btn', container);
+                clear.type = 'button';
+                clear.title = 'Clear local track';
+                clear.innerText = 'Clear';
+                
+                L.DomEvent.disableClickPropagation(container);
+                L.DomEvent.on(toggle, 'click', function() {
+                    self.setRecordTrack(!self.recordTrack);
+                });
+                L.DomEvent.on(clear, 'click', function() {
+                    self.clearLocalTrack();
+                });
+                
+                self._trackToggleBtn = toggle;
+                self._trackClearBtn = clear;
+                return container;
+            }
+        });
+        this.map.addControl(new TrackControl());
+        this.updateTrackControlsUI();
+    }
+    
+    updateTrackControlsUI() {
+        if (this._trackToggleBtn) {
+            this._trackToggleBtn.innerText = this.recordTrack ? 'Track: On' : 'Track: Off';
+            this._trackToggleBtn.classList.toggle('on', this.recordTrack);
+            this._trackToggleBtn.classList.toggle('off', !this.recordTrack);
+        }
+        if (this._trackClearBtn) {
+            this._trackClearBtn.disabled = this.localTrackPoints.length === 0;
+        }
     }
 }
 
