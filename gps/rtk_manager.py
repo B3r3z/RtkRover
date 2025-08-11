@@ -292,8 +292,7 @@ class RTKManager:
     def _handle_rtcm_data(self, rtcm_data: bytes):
         """
         Handle RTCM data received from NTRIP client
-        Forward it to GPS receiver ONLY if it's valid RTCM data
-        NTRIP Client already validates data, but we double-check for safety
+        Forward it to GPS receiver with proper synchronization to avoid NMEA corruption
         """
         try:
             if self.gps_serial and rtcm_data:
@@ -301,40 +300,42 @@ class RTKManager:
                 data_type = RTCMValidator.detect_data_type(rtcm_data)
                 
                 if data_type == 'rtcm':
-                    # Write RTCM data directly to GPS
-                    bytes_written = self.gps_serial.write(rtcm_data)
-                    
-                    # Update statistics
-                    self._stats['rtcm_bytes_received'] += len(rtcm_data)
-                    self._stats['last_rtcm_time'] = time.time()
-                    self._stats['rtcm_messages_processed'] += 1
-                    
-                    # Verify write was successful
-                    if bytes_written != len(rtcm_data):
-                        logger.warning(f"⚠️  RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
-                    else:
-                        logger.debug(f"✅ Forwarded {len(rtcm_data)} bytes of RTCM corrections to GPS")
-                    
-                    # Force flush to ensure data reaches GPS immediately
-                    self.gps_serial.flush()
-                    
-                    # Read any immediate GPS response
-                    self._process_immediate_gps_response()
-                    
-                elif data_type == 'nmea':
-                    # This should never happen if NTRIP client is working correctly
-                    nmea_str = rtcm_data.decode('ascii', errors='ignore').strip()
-                    logger.error(f"❌ RTK Manager received NMEA instead of RTCM: {nmea_str[:80]}...")
-                    logger.error("🔧 This indicates a configuration problem with the NTRIP mount point!")
-                    
+                    # Use thread-safe serial access to prevent NMEA corruption
+                    with self._state_lock:  # Synchronize with NMEA reading
+                        try:
+                            # Clear any pending input before writing RTCM
+                            # This prevents old NMEA data from interfering with new RTCM
+                            if self.gps_serial.in_waiting > 0:
+                                logger.debug(f"Clearing {self.gps_serial.in_waiting} bytes from input buffer before RTCM write")
+                                self.gps_serial.reset_input_buffer()
+                            
+                            # Write RTCM data to GPS
+                            bytes_written = self.gps_serial.write(rtcm_data)
+                            
+                            # Ensure data is immediately sent to GPS
+                            self.gps_serial.flush()
+                            
+                            # Brief pause to let GPS process RTCM data
+                            time.sleep(0.001)  # 1ms pause
+                            
+                            # Update statistics
+                            self._stats['rtcm_bytes_received'] += len(rtcm_data)
+                            self._stats['last_rtcm_time'] = time.time()
+                            self._stats['rtcm_messages_processed'] += 1
+                            
+                            # Verify write was successful
+                            if bytes_written != len(rtcm_data):
+                                logger.warning(f"⚠️  RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
+                            else:
+                                logger.debug(f"✅ Forwarded {len(rtcm_data)} bytes RTCM to GPS (synchronized)")
+                                
+                        except serial.SerialException as se:
+                            logger.warning(f"Serial error during RTCM write: {se}")
+                        except Exception as e:
+                            logger.error(f"Unexpected error during RTCM write: {e}")
                 else:
-                    # Unknown data format - log for debugging
-                    hex_preview = ' '.join([f'{b:02x}' for b in rtcm_data[:20]])
-                    logger.warning(f"⚠️  Unknown data format from NTRIP: {hex_preview}")
-                    # Still forward it, might be fragmented RTCM
-                    self.gps_serial.write(rtcm_data)
-                    self.gps_serial.flush()
-            
+                    logger.warning(f"⚠️  Rejected non-RTCM data from NTRIP: {data_type}")
+                    
         except Exception as e:
             logger.error(f"Error handling RTCM data: {e}")
             self._stats['connection_failures'] += 1
@@ -433,9 +434,11 @@ class RTKManager:
                          break
                     continue
 
-                # Read and process data with corruption detection
+                # Read and process data with corruption detection and synchronization
                 try:
-                    raw_data, parsed_data = self.nmea_reader.read()
+                    # Synchronized NMEA reading to prevent interference with RTCM writing
+                    with self._state_lock:  # Synchronize with RTCM writing
+                        raw_data, parsed_data = self.nmea_reader.read()
                 except Exception as read_error:
                     # Handle corruption at read level
                     corruption_count += 1
@@ -472,6 +475,21 @@ class RTKManager:
                         if not raw_str.startswith('$') or len(raw_str) < 10:
                             corruption_count += 1
                             logger.debug(f"Corrupted NMEA format detected: {raw_str[:50]}")
+                            continue
+                        
+                        # Check for RTCM contamination (binary data in NMEA stream)
+                        if b'\xd3' in raw_data:  # RTCM preamble in NMEA data
+                            corruption_count += 1
+                            logger.debug("RTCM contamination detected in NMEA stream")
+                            # Clear buffer and continue
+                            self.gps_serial.reset_input_buffer()
+                            time.sleep(0.01)
+                            continue
+                        
+                        # Check for binary characters that shouldn't be in NMEA
+                        if any(b < 32 or b > 126 for b in raw_data if b not in [10, 13]):  # Allow CR/LF
+                            corruption_count += 1
+                            logger.debug("Binary contamination in NMEA data")
                             continue
                         
                         # Check for repeated characters (sign of corruption)
