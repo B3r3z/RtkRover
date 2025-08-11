@@ -1,44 +1,3 @@
-"""
-RTK Manager - based on Waveshare LC29H examples
-Simplified and adap    def _validate_configuration(self):
-        required_uart_fields = ['port', 'baudrate']
-        for field in required_uart_fields:
-            if not self.uart_config.get(field):
-                raise RTKConfigurationError(f"UART configuration missing required field: '{field}'")
-        
-        if not self.ntrip_config.get('enabled', False):
-            logger.warning("NTRIP not configured - system will run in GPS-only mode")
-            return
-        
-        required_ntrip_fields = ['caster', 'port', 'username', 'password', 'mountpoint']
-        missing_fields = [field for field in required_    def get_current_position(self):
-        with self._position_lock:
-            if not self.current_position:
-                return None
-            
-            # Check if the position data is recent
-            try:
-                last_update_str = self.current_position.get("timestamp")
-                if last_update_str:
-                    last_update = datetime.fromisoformat(last_update_str.replace("Z", "+00:00"))
-                    if (datetime.now(timezone.utc) - last_update).total_seconds() > 15:
-                        logger.warning("Position data is stale.")
-                        # Return stale data but with a warning status
-                        stale_pos = self.current_position.copy()
-                        stale_pos["rtk_status"] = "Stale"
-                        return stale_pos
-            except (ValueError, TypeError):
-                logger.debug("Could not parse timestamp for position freshness check.")
-
-            return self.current_position.copy()
-                         if not self.ntrip_config.get(field)]
-        
-        if missing_fields:
-            logger.warning(f"NTRIP fields missing: {missing_fields} - NTRIP will be disabled")
-            self.ntrip_config['enabled'] = False project
-Enhanced with better error handling and thread safety
-"""
-
 import serial
 import threading
 import time
@@ -48,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable
 from pynmeagps import NMEAReader
 from .ntrip_client import NTRIPClient, NTRIPError, NTRIPConnectionError, NTRIPAuthenticationError
-from utils.nmea_utils import build_dummy_gga
+from config.nmea_utils import build_dummy_gga
 
 logger = logging.getLogger(__name__)
 
@@ -282,19 +241,19 @@ class RTKManager:
         Get current GGA sentence as bytes for NTRIP client.
         This callback should be quick and non-blocking.
         """
-        with self._position_lock:
+        try:
             # Primarily rely on the most recent position data.
-            if self.current_position:
-                gga_sentence = self._build_gga_sentence()
-                if gga_sentence:
-                    self._stats['gga_real_vs_synthetic']['synthetic'] += 1
-                    return gga_sentence.encode('ascii')
-            
-            # Last fallback: dummy GGA
+            with self._position_lock:
+                if self.current_position:
+                    gga_sentence = self._build_gga_sentence()
+                    if gga_sentence:
+                        self._stats['gga_real_vs_synthetic']['synthetic'] += 1
+                        return gga_sentence.encode('ascii')
+
+            # If no position is available, fall back to a dummy GGA.
             dummy_gga = build_dummy_gga()
             self._stats['gga_real_vs_synthetic']['dummy'] += 1
             return dummy_gga.encode('ascii')
-            
         except Exception as e:
             logger.debug(f"Error getting GGA bytes: {e}")
             return None
