@@ -190,27 +190,33 @@ class RTCMParser:
             
             # Create raw message
             raw_message = bytes(self.buffer[0:total_length])
-            
+
             # Validate CRC
             is_valid = self._validate_crc(raw_message[:-3], crc)
             if not is_valid:
-                logger.warning(f"CRC validation failed for message type {msg_type}")
                 self.stats['crc_errors'] += 1
-            
+                logger.warning(f"Invalid CRC for RTCM message type {msg_type}")
+                # Consume the message from buffer and discard
+                self.buffer = self.buffer[total_length:]
+                return None
+
             # Update statistics
             self.stats['messages_parsed'] += 1
             if msg_type in self.stats['message_types']:
                 self.stats['message_types'][msg_type] += 1
             else:
                 self.stats['message_types'][msg_type] = 1
-            
+
             # Log message info
             msg_name = self.rtcm_message_types.get(msg_type, f"Unknown ({msg_type})")
             if msg_type not in self.rtcm_message_types:
                 self.stats['unknown_messages'] += 1
-            
+
             logger.debug(f"📡 RTCM Message: Type {msg_type} ({msg_name}), Length: {length}, Valid: {is_valid}")
-            
+
+            # Consume message from buffer
+            self.buffer = self.buffer[total_length:]
+
             return RTCMMessage(
                 message_type=msg_type,
                 length=length,
@@ -219,25 +225,30 @@ class RTCMParser:
                 raw_message=raw_message,
                 is_valid=is_valid
             )
-            
+
         except Exception as e:
             logger.error(f"Error parsing RTCM message: {e}")
             self.stats['parse_errors'] += 1
+            # Consume some data to avoid getting stuck
+            self.buffer = self.buffer[1:]
             return None
-    
+
     def _validate_crc(self, data: bytes, received_crc: int) -> bool:
         """
         Validate RTCM CRC-24Q
-        
+
         RTCM uses CRC-24Q polynomial: 0x1864CFB
         """
-        try:
-            # Simplified CRC validation for now
-            # TODO: Implement proper CRC-24Q algorithm
-            return True  # For now, assume CRC is valid
-        except Exception as e:
-            logger.error(f"CRC validation error: {e}")
-            return False
+        crc = 0
+        for byte in data:
+            crc ^= byte << 16
+            for _ in range(8):
+                if crc & 0x800000:
+                    crc = (crc << 1) ^ 0x1864CFB
+                else:
+                    crc <<= 1
+        crc &= 0xFFFFFF
+        return crc == received_crc
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get parser statistics"""
