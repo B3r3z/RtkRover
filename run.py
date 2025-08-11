@@ -40,6 +40,9 @@ def setup_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=handlers
     )
+    # Reduce noisy third-party loggers
+    logging.getLogger('pynmeagps.nmeareader').setLevel(logging.ERROR)
+    logging.getLogger('pynmeagps').setLevel(logging.ERROR)
 
 def setup_signal_handlers(app):
     """Setup graceful shutdown signal handlers"""

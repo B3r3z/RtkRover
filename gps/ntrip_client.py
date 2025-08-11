@@ -299,35 +299,30 @@ class NTRIPClient:
                         continue  # Skip this data
                     
                     elif data_type == 'rtcm':
-                        # Parse RTCM messages
+                        # Parse RTCM messages (parser keeps its own buffer for fragments)
                         rtcm_messages = self.rtcm_parser.add_data(data)
-                        
+
                         if rtcm_messages:
                             # Process each complete RTCM message
                             for message in rtcm_messages:
                                 if message.is_valid:
                                     # Forward valid RTCM message to GPS
                                     data_callback(message.raw_message)
-                                    
+
                                     msg_name = self.rtcm_parser.rtcm_message_types.get(
                                         message.message_type, f"Type {message.message_type}"
                                     )
-                                    logger.info(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
+                                    logger.debug(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
                                 else:
-                                    logger.warning(f"⚠️  Invalid RTCM message type {message.message_type} (CRC failed)")
-                        
-                        # Forward raw data as well (for compatibility)
-                        if not rtcm_messages:
-                            # If no complete messages were parsed, forward raw data
-                            data_callback(data)
-                            logger.debug(f"📡 Raw RTCM data: {len(data)} bytes → GPS")
+                                    logger.debug(
+                                        f"Dropped RTCM type {message.message_type}: CRC invalid (len={message.length})"
+                                    )
+                        # If no complete messages yet, do nothing; bytes remain buffered in parser
                     
                     else:
-                        # Unknown data type
+                        # Unknown data type – don't forward; likely partial headers or noise
                         hex_preview = ' '.join([f'{b:02x}' for b in data[:20]])
-                        logger.warning(f"⚠️  Unknown data type from NTRIP. First 20 bytes: {hex_preview}")
-                        # Still forward it, might be fragmented RTCM
-                        data_callback(data)
+                        logger.debug(f"⚠️  Unknown data type from NTRIP. First 20 bytes: {hex_preview}")
                     
                     # Send periodic GGA updates
                     current_time = time.time()
