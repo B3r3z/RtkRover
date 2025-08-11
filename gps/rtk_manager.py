@@ -64,7 +64,9 @@ class RTKManager:
             'nmea_errors': 0,
             'connection_failures': 0,
             'last_rtcm_time': 0,
-            'last_gga_time': 0
+            'last_gga_time': 0,
+            'rtcm_messages_processed': 0,
+            'gga_real_vs_synthetic': {'real': 0, 'synthetic': 0, 'dummy': 0}
         }
         
     def _validate_configuration(self):
@@ -242,35 +244,119 @@ class RTKManager:
         """
         Get current GGA sentence as bytes for NTRIP client
         This is called by NTRIPClient when it needs to send GGA
+        Pattern follows main.py: getGGABytes() method
         """
         try:
+            # First try to get real GGA from GPS stream (preferred method)
+            if self.gps_serial and self.nmea_reader:
+                # Try to read recent GGA from GPS stream
+                gga_bytes = self._get_real_gga_from_stream()
+                if gga_bytes:
+                    return gga_bytes
+            
+            # Fallback: build GGA from current position
             if self.current_position:
-                # Build GGA from current position
                 gga_sentence = self._build_gga_sentence()
                 if gga_sentence:
                     return gga_sentence.encode('ascii')
             
-            # Return None if no position available
+            # Last fallback: dummy GGA (like NTRIPClient._build_dummy_gga)
+            dummy_gga = self._build_dummy_gga()
+            if dummy_gga:
+                return dummy_gga.encode('ascii')
+            
             return None
             
         except Exception as e:
             logger.debug(f"Error getting GGA bytes: {e}")
             return None
     
+    def _get_real_gga_from_stream(self) -> Optional[bytes]:
+        """
+        Try to get real GGA sentence from GPS stream
+        Similar to main.py getGGABytes() method
+        """
+        try:
+            # Check if there's data available
+            if self.gps_serial.in_waiting > 0:
+                # Try to read a few messages to find GGA
+                for _ in range(5):  # Limit attempts
+                    try:
+                        raw_data, parsed_data = self.nmea_reader.read()
+                        if raw_data and (b"GNGGA" in raw_data or b"GPGGA" in raw_data):
+                            logger.debug("Using real GGA from GPS stream")
+                            self._stats['gga_real_vs_synthetic']['real'] += 1
+                            return raw_data
+                    except Exception:
+                        continue
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"Error getting real GGA: {e}")
+            return None
+    
+    def _build_dummy_gga(self) -> str:
+        """
+        Build dummy GGA for keep-alive (fallback)
+        Similar to main.py pattern and NTRIPClient._build_dummy_gga
+        """
+        current_time = time.strftime('%H%M%S')
+        # Use Poland center coordinates as fallback
+        dummy_gga = f"$GNGGA,{current_time},5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00\r\n"
+        self._stats['gga_real_vs_synthetic']['dummy'] += 1
+        return dummy_gga
+    
     def _handle_rtcm_data(self, rtcm_data: bytes):
         """
         Handle RTCM data received from NTRIP client
-        Forward it to GPS receiver
+        Forward it to GPS receiver (like in main.py pattern)
         """
         try:
             if self.gps_serial and rtcm_data:
-                self.gps_serial.write(rtcm_data)
+                # Write RTCM data directly to GPS (like main.py: self.stream.write(data))
+                bytes_written = self.gps_serial.write(rtcm_data)
+                
+                # Update statistics
                 self._stats['rtcm_bytes_received'] += len(rtcm_data)
                 self._stats['last_rtcm_time'] = time.time()
-                logger.debug(f"Forwarded {len(rtcm_data)} bytes of RTCM to GPS")
+                self._stats['rtcm_messages_processed'] += 1
+                
+                # Verify write was successful
+                if bytes_written != len(rtcm_data):
+                    logger.warning(f"RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
+                else:
+                    logger.debug(f"Forwarded {len(rtcm_data)} bytes of RTCM to GPS")
+                
+                # Force flush to ensure data reaches GPS immediately
+                self.gps_serial.flush()
+                
+                # Read any immediate GPS response (like main.py pattern)
+                self._process_immediate_gps_response()
             
         except Exception as e:
             logger.error(f"Error handling RTCM data: {e}")
+            self._stats['connection_failures'] += 1
+    
+    def _process_immediate_gps_response(self):
+        """
+        Process any immediate GPS response after RTCM data
+        Similar to main.py pattern: (raw_data, parsed_data) = self.nmr.read()
+        """
+        try:
+            if self.gps_serial and self.nmea_reader and self.gps_serial.in_waiting > 0:
+                # Try to read immediate response
+                raw_data, parsed_data = self.nmea_reader.read()
+                
+                if raw_data and parsed_data:
+                    # Check if it's a GGA message (position update)
+                    if b"GNGGA" in raw_data or b"GPGGA" in raw_data:
+                        logger.debug(f"GPS immediate response: {raw_data.decode('ascii', errors='ignore').strip()}")
+                        self._process_nmea_message(raw_data, parsed_data)
+                        
+        except Exception as e:
+            # Don't log errors here as it's optional processing
+            pass
     
     def _start_threads(self):
         
@@ -479,6 +565,9 @@ class RTKManager:
             
             # Build simplified GGA (you might want to store the actual raw GGA instead)
             gga = f"$GNGGA,{time.strftime('%H%M%S')},{lat_deg:02d}{lat_min:07.4f},{lat_ns},{lon_deg:03d}{lon_min:07.4f},{lon_ew},1,{pos['satellites']},{pos['hdop']:.1f},{pos['altitude']:.1f},M,0.0,M,,*00"
+            
+            # Update statistics
+            self._stats['gga_real_vs_synthetic']['synthetic'] += 1
             
             return gga
             

@@ -99,6 +99,7 @@ class NTRIPClient:
     
     def _process_response(self) -> bool:
         found_header = False
+        connection_accepted = False
         
         try:
             while not found_header:
@@ -111,7 +112,7 @@ class NTRIPClient:
                 
                 logger.debug(f"NTRIP response: {response_str}")
                 
-
+                # Process each header line
                 for line in header_lines:
                     if line == "":
                         if not found_header:
@@ -120,20 +121,32 @@ class NTRIPClient:
                     else:
                         logger.debug(f"NTRIP Header: {line}")
                     
+                    # Check for error responses (like in main.py)
                     if line.find("SOURCETABLE") >= 0:
                         raise NTRIPAuthenticationError("Mount point does not exist (SOURCETABLE response)")
                     elif line.find("401 Unauthorized") >= 0:
                         raise NTRIPAuthenticationError("Unauthorized request - check username/password")
                     elif line.find("404 Not Found") >= 0:
                         raise NTRIPAuthenticationError("Mount point does not exist (404)")
+                    elif line.find("400 Bad Request") >= 0:
+                        raise NTRIPAuthenticationError("Bad request - check mount point name")
+                    elif line.find("403 Forbidden") >= 0:
+                        raise NTRIPAuthenticationError("Forbidden - check credentials and mount point access")
                     
+                    # Check for successful connection (like in main.py)
                     elif (line.find("ICY 200 OK") >= 0 or 
                           line.find("HTTP/1.0 200 OK") >= 0 or 
                           line.find("HTTP/1.1 200 OK") >= 0):
                         
                         logger.info(f"NTRIP connection accepted: {line}")
-                        self._send_initial_gga()
-                        return True
+                        connection_accepted = True
+                        
+                # If headers are complete and connection accepted, send GGA
+                if found_header and connection_accepted:
+                    self._send_initial_gga()
+                    return True
+                elif found_header and not connection_accepted:
+                    raise NTRIPConnectionError("Connection not accepted by server")
             
             raise NTRIPConnectionError("No valid response received")
             
@@ -188,6 +201,7 @@ class NTRIPClient:
         logger.info("NTRIP data reception loop started")
         
         reconnect_attempts = 0
+        rtcm_buffer = b''  # Buffer for incomplete RTCM messages
         
         while self.running and reconnect_attempts < NTRIP_MAX_RECONNECT_ATTEMPTS:
             try:
@@ -196,27 +210,40 @@ class NTRIPClient:
                     logger.info("Attempting NTRIP reconnection...")
                     if self.connect():
                         reconnect_attempts = 0  # Reset counter on success
+                        rtcm_buffer = b''  # Clear buffer on reconnect
                     else:
                         reconnect_attempts += 1
                         logger.warning(f"NTRIP reconnection failed ({reconnect_attempts}/{NTRIP_MAX_RECONNECT_ATTEMPTS})")
                         time.sleep(NTRIP_RECONNECT_INTERVAL)
                         continue
                 
-                # Receive data
-                data = self.socket.recv(1024)
+                # Receive data - use larger buffer like in original
+                data = self.socket.recv(4096)  # Increased buffer size
                 
                 if data:
                     self.bytes_received += len(data)
                     self.last_data_time = time.time()
                     
-                    # Forward data to callback
-                    data_callback(data)
-                    
-                    logger.debug(f"Received {len(data)} bytes of RTCM data")
+                    # Validate and process RTCM data
+                    if self._validate_rtcm_data(data):
+                        # Accumulate data in buffer for complete RTCM messages
+                        rtcm_buffer += data
+                        
+                        # Process complete RTCM messages from buffer
+                        processed_data, rtcm_buffer = self._process_rtcm_buffer(rtcm_buffer)
+                        
+                        if processed_data:
+                            # Forward validated RTCM data to callback
+                            data_callback(processed_data)
+                            logger.debug(f"Forwarded {len(processed_data)} bytes of validated RTCM data")
+                    else:
+                        logger.warning(f"Received {len(data)} bytes of invalid RTCM data - discarding")
+                        
                 else:
                     # No data received - connection might be lost
                     logger.warning("No data received from NTRIP - connection lost")
                     self._cleanup_socket()
+                    rtcm_buffer = b''  # Clear buffer on connection loss
                     
             except socket.timeout:
                 # Timeout is normal - continue
@@ -229,6 +256,80 @@ class NTRIPClient:
         
         logger.info("NTRIP data reception loop ended")
         self.running = False
+    
+    def _validate_rtcm_data(self, data: bytes) -> bool:
+        """
+        Validate if received data contains RTCM messages
+        RTCM messages start with 0xD3 and have specific structure
+        """
+        if not data or len(data) < 3:
+            return False
+        
+        # Check for RTCM 3.x preamble (0xD3)
+        for i in range(len(data) - 2):
+            if data[i] == 0xD3:
+                # Found potential RTCM message start
+                return True
+        
+        # Also allow raw binary data that might be RTCM
+        # (some casters send data without clear message boundaries)
+        return True
+    
+    def _process_rtcm_buffer(self, buffer: bytes) -> tuple[bytes, bytes]:
+        """
+        Process RTCM buffer to extract complete messages
+        Returns: (processed_data, remaining_buffer)
+        """
+        if not buffer:
+            return b'', b''
+        
+        processed = b''
+        remaining = buffer
+        
+        while len(remaining) >= 3:
+            # Look for RTCM message start (0xD3)
+            start_idx = -1
+            for i in range(len(remaining)):
+                if remaining[i] == 0xD3:
+                    start_idx = i
+                    break
+            
+            if start_idx == -1:
+                # No RTCM message found, but data might still be valid
+                # In streaming mode, we pass through all data
+                processed += remaining
+                remaining = b''
+                break
+            
+            if start_idx > 0:
+                # Add any data before RTCM message
+                processed += remaining[:start_idx]
+                remaining = remaining[start_idx:]
+            
+            if len(remaining) < 3:
+                # Not enough data for RTCM header
+                break
+            
+            # Extract message length from RTCM header
+            try:
+                # RTCM message length is in bytes 1-2 (after 0xD3)
+                length = ((remaining[1] & 0x03) << 8) | remaining[2]
+                total_length = length + 6  # 3 header + length + 3 CRC
+                
+                if len(remaining) >= total_length:
+                    # We have complete message
+                    processed += remaining[:total_length]
+                    remaining = remaining[total_length:]
+                else:
+                    # Incomplete message, wait for more data
+                    break
+                    
+            except (IndexError, ValueError):
+                # Error parsing message, treat as raw data
+                processed += remaining[:1]
+                remaining = remaining[1:]
+        
+        return processed, remaining
     
     def send_gga(self, gga_data: bytes) -> bool:
         with self._lock:
