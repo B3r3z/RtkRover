@@ -31,14 +31,22 @@ class RTKApplicationManager:
             self.rtk_manager = None
             self.rtk_thread = None
             self.initialization_lock = threading.Lock()
+            self._initialization_event = threading.Event()
             self._initialized = True
     
     def get_rtk_manager(self):
         """Get RTK manager instance with lazy initialization"""
-        if self.rtk_manager is None:
+        # Use a lock to ensure the initialization thread is started only once.
+        if not self._initialization_event.is_set():
             with self.initialization_lock:
-                if self.rtk_manager is None:
+                # Check again in case another thread initialized it while we were waiting.
+                if self.rtk_thread is None:
                     self._init_rtk_system()
+            
+            # Wait for the initialization to complete with a timeout.
+            if not self._initialization_event.wait(timeout=20.0):
+                logger.error("RTK system initialization timed out. System will be unavailable.")
+
         return self.rtk_manager
     
     def _init_rtk_system(self):
@@ -62,6 +70,9 @@ class RTKApplicationManager:
                 logger.error(f"Critical error in RTK worker thread: {e}", exc_info=True)
                 # Set rtk_manager to None to indicate failure
                 self.rtk_manager = None
+            finally:
+                # Signal that initialization is complete, regardless of the outcome.
+                self._initialization_event.set()
         
         # Avoid double initialization in Flask debug mode
         if self.rtk_thread is not None and self.rtk_thread.is_alive():
@@ -70,9 +81,6 @@ class RTKApplicationManager:
         
         self.rtk_thread = threading.Thread(target=rtk_worker, daemon=True, name="RTKWorker")
         self.rtk_thread.start()
-        
-        # Wait a moment for initialization to start
-        time.sleep(0.5)
 
 # Global application manager instance
 app_manager = RTKApplicationManager()

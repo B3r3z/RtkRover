@@ -10,6 +10,7 @@ import time
 import threading
 import logging
 from typing import Optional, Callable, Dict, Any
+from config.nmea_utils import build_dummy_gga
 
 logger = logging.getLogger(__name__)
 
@@ -164,19 +165,13 @@ class NTRIPClient:
                     logger.debug("Initial GGA sent to NTRIP caster")
                     return
             
-            dummy_gga = self._build_dummy_gga()
+            dummy_gga = build_dummy_gga()
             if dummy_gga:
                 self.socket.sendall(dummy_gga.encode('ascii'))
                 logger.debug("Dummy GGA sent to NTRIP caster")
                 
         except Exception as e:
             logger.warning(f"Failed to send initial GGA: {e}")
-    
-    def _build_dummy_gga(self) -> str:
-        current_time = time.strftime('%H%M%S')
-        # Poland center coordinates for keep-alive
-        dummy_gga = f"$GNGGA,{current_time},5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00\r\n"
-        return dummy_gga
     
     def start_data_reception(self, data_callback: Callable[[bytes], None]) -> bool:
         if not self.connected:
@@ -362,10 +357,19 @@ class NTRIPClient:
             self.connected = False
             if self.socket:
                 try:
-                    self.socket.close()
-                except:
-                    pass
-                self.socket = None
+                    self.socket.shutdown(socket.SHUT_RDWR)
+                except OSError as e:
+                    # Ignore "not connected" errors, which are expected
+                    if e.errno != 107: # ENOTCONN
+                         logger.debug(f"Error shutting down socket: {e}")
+                except Exception as e:
+                    logger.debug(f"Unexpected error during socket shutdown: {e}")
+                finally:
+                    try:
+                        self.socket.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing socket: {e}")
+                    self.socket = None
     
     def get_statistics(self) -> Dict[str, Any]:
         return {

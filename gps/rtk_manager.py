@@ -1,6 +1,41 @@
 """
 RTK Manager - based on Waveshare LC29H examples
-Simplified and adapted for RTK Mower project
+Simplified and adap    def _validate_configuration(self):
+        required_uart_fields = ['port', 'baudrate']
+        for field in required_uart_fields:
+            if not self.uart_config.get(field):
+                raise RTKConfigurationError(f"UART configuration missing required field: '{field}'")
+        
+        if not self.ntrip_config.get('enabled', False):
+            logger.warning("NTRIP not configured - system will run in GPS-only mode")
+            return
+        
+        required_ntrip_fields = ['caster', 'port', 'username', 'password', 'mountpoint']
+        missing_fields = [field for field in required_    def get_current_position(self):
+        with self._position_lock:
+            if not self.current_position:
+                return None
+            
+            # Check if the position data is recent
+            try:
+                last_update_str = self.current_position.get("timestamp")
+                if last_update_str:
+                    last_update = datetime.fromisoformat(last_update_str.replace("Z", "+00:00"))
+                    if (datetime.now(timezone.utc) - last_update).total_seconds() > 15:
+                        logger.warning("Position data is stale.")
+                        # Return stale data but with a warning status
+                        stale_pos = self.current_position.copy()
+                        stale_pos["rtk_status"] = "Stale"
+                        return stale_pos
+            except (ValueError, TypeError):
+                logger.debug("Could not parse timestamp for position freshness check.")
+
+            return self.current_position.copy()
+                         if not self.ntrip_config.get(field)]
+        
+        if missing_fields:
+            logger.warning(f"NTRIP fields missing: {missing_fields} - NTRIP will be disabled")
+            self.ntrip_config['enabled'] = False project
 Enhanced with better error handling and thread safety
 """
 
@@ -9,9 +44,11 @@ import threading
 import time
 import logging
 import sys
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable
 from pynmeagps import NMEAReader
 from .ntrip_client import NTRIPClient, NTRIPError, NTRIPConnectionError, NTRIPAuthenticationError
+from utils.nmea_utils import build_dummy_gga
 
 logger = logging.getLogger(__name__)
 
@@ -242,30 +279,21 @@ class RTKManager:
     
     def _get_current_gga_bytes(self) -> Optional[bytes]:
         """
-        Get current GGA sentence as bytes for NTRIP client
-        This is called by NTRIPClient when it needs to send GGA
-        Pattern follows main.py: getGGABytes() method
+        Get current GGA sentence as bytes for NTRIP client.
+        This callback should be quick and non-blocking.
         """
-        try:
-            # First try to get real GGA from GPS stream (preferred method)
-            if self.gps_serial and self.nmea_reader:
-                # Try to read recent GGA from GPS stream
-                gga_bytes = self._get_real_gga_from_stream()
-                if gga_bytes:
-                    return gga_bytes
-            
-            # Fallback: build GGA from current position
+        with self._position_lock:
+            # Primarily rely on the most recent position data.
             if self.current_position:
                 gga_sentence = self._build_gga_sentence()
                 if gga_sentence:
+                    self._stats['gga_real_vs_synthetic']['synthetic'] += 1
                     return gga_sentence.encode('ascii')
             
-            # Last fallback: dummy GGA (like NTRIPClient._build_dummy_gga)
-            dummy_gga = self._build_dummy_gga()
-            if dummy_gga:
-                return dummy_gga.encode('ascii')
-            
-            return None
+            # Last fallback: dummy GGA
+            dummy_gga = build_dummy_gga()
+            self._stats['gga_real_vs_synthetic']['dummy'] += 1
+            return dummy_gga.encode('ascii')
             
         except Exception as e:
             logger.debug(f"Error getting GGA bytes: {e}")
@@ -297,15 +325,9 @@ class RTKManager:
             return None
     
     def _build_dummy_gga(self) -> str:
-        """
-        Build dummy GGA for keep-alive (fallback)
-        Similar to main.py pattern and NTRIPClient._build_dummy_gga
-        """
-        current_time = time.strftime('%H%M%S')
-        # Use Poland center coordinates as fallback
-        dummy_gga = f"$GNGGA,{current_time},5213.0000,N,02100.0000,E,1,08,1.0,100.0,M,0.0,M,,*00\r\n"
+        """Build dummy GGA using the centralized utility function."""
         self._stats['gga_real_vs_synthetic']['dummy'] += 1
-        return dummy_gga
+        return build_dummy_gga()
     
     def _handle_rtcm_data(self, rtcm_data: bytes):
         """
@@ -416,44 +438,53 @@ class RTKManager:
         
         consecutive_errors = 0
         max_consecutive_errors = 10
-        nmea_errors = 0
         
-        while self.running and self.nmea_reader and consecutive_errors < max_consecutive_errors:
+        while self.running and self.nmea_reader:
             try:
-                if self.gps_serial and self.gps_serial.in_waiting > 0:
-                    try:
-                        raw_data, parsed_data = self.nmea_reader.read()
-                        
-                        if raw_data and parsed_data:
-                            self._process_nmea_message(raw_data, parsed_data)
-                            consecutive_errors = 0
-                        else:
-                            time.sleep(0.1)
-                            
-                    except Exception as nmea_error:
-                        if "checksum" in str(nmea_error) or "invalid" in str(nmea_error):
-                            nmea_errors += 1
-                            if nmea_errors % 10 == 0:  # Log every 10th error to avoid spam
-                                logger.debug(f"NMEA checksum errors: {nmea_errors} (non-fatal)")
-                            time.sleep(0.1)
-                        else:
-                            consecutive_errors += 1
-                            logger.warning(f"NMEA parsing error: {nmea_error}")
-                            time.sleep(0.5)
-                else:
+                # Check for serial port availability and data
+                if not (self.gps_serial and self.gps_serial.is_open and self.gps_serial.in_waiting > 0):
                     time.sleep(0.1)
-                        
-            except Exception as e:
+                    # If we lose connection, check for too many errors
+                    if not (self.gps_serial and self.gps_serial.is_open):
+                        consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                         logger.error("Lost GPS serial connection. Stopping NMEA loop.")
+                         break
+                    continue
+
+                # Read and process data
+                raw_data, parsed_data = self.nmea_reader.read()
+                
+                if raw_data and parsed_data:
+                    self._process_nmea_message(raw_data, parsed_data)
+                    consecutive_errors = 0  # Reset on success
+                else:
+                    # This can happen with incomplete messages
+                    time.sleep(0.05)
+            
+            except serial.SerialException as se:
+                logger.error(f"GPS serial error in NMEA loop: {se}")
                 consecutive_errors += 1
-                logger.error(f"NMEA loop error ({consecutive_errors}/{max_consecutive_errors}): {e}")
+                time.sleep(GPS_RECONNECT_INTERVAL)
+            except Exception as e:
+                # Handle checksum and other parsing errors from pynmeagps
+                if "checksum" in str(e).lower() or "format" in str(e).lower():
+                    self._stats['nmea_errors'] += 1
+                    if self._stats['nmea_errors'] % 20 == 0: # Log periodically to avoid spam
+                        logger.debug(f"NMEA format/checksum error: {e}")
+                else:
+                    logger.warning(f"Unhandled NMEA loop error: {e}")
+                    consecutive_errors += 1
                 
-                if consecutive_errors >= max_consecutive_errors:
-                    logger.error("Too many consecutive NMEA errors, stopping loop")
-                    break
-                    
-                time.sleep(1)
+                time.sleep(0.1)
+
+            # Check for exit condition
+            if consecutive_errors >= max_consecutive_errors:
+                logger.error("Too many consecutive errors in NMEA loop. Stopping.")
+                self.running = False # Signal other threads to stop
+                break
                 
-        logger.info(f"NMEA processing loop ended (total checksum errors: {nmea_errors})")
+        logger.info(f"NMEA processing loop ended (total checksum errors: {self._stats['nmea_errors']})")
     
     def _process_nmea_message(self, raw_data, parsed_data):
         """Process NMEA message and extract position data"""
