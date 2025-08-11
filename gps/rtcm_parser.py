@@ -91,20 +91,28 @@ class RTCMParser:
     def _extract_messages(self) -> List[RTCMMessage]:
         """Extract complete RTCM messages from buffer"""
         messages = []
+        max_iterations = 10  # Prevent infinite loops
+        iterations = 0
         
-        while len(self.buffer) >= 6:  # Minimum RTCM message size
+        while len(self.buffer) >= 6 and iterations < max_iterations:
+            iterations += 1
+            
             # Look for RTCM preamble (0xD3)
             preamble_idx = self._find_preamble()
             
             if preamble_idx == -1:
-                # No preamble found, clear buffer
-                logger.warning(f"No RTCM preamble found in {len(self.buffer)} bytes")
-                self.buffer.clear()
+                # No preamble found, but keep some data for next iteration
+                if len(self.buffer) > 1000:  # Prevent buffer overflow
+                    # Keep last 100 bytes in case preamble is split
+                    self.buffer = self.buffer[-100:]
+                    logger.warning(f"Buffer too large ({len(self.buffer)} bytes), truncated")
                 break
             
             # Remove data before preamble
             if preamble_idx > 0:
+                discarded = self.buffer[:preamble_idx]
                 self.buffer = self.buffer[preamble_idx:]
+                logger.debug(f"Discarded {len(discarded)} bytes before RTCM preamble")
             
             # Try to parse message
             message = self._parse_message()
@@ -118,6 +126,13 @@ class RTCMParser:
                 self.buffer = self.buffer[1:]
         
         return messages
+    
+    def reset(self):
+        """Reset parser state and clear buffers"""
+        logger.info("🔄 Resetting RTCM parser - clearing all buffers")
+        self.buffer = b''
+        self.incomplete_message = None
+        # Reset any internal state if needed
     
     def _find_preamble(self) -> int:
         """Find RTCM preamble (0xD3) in buffer"""
@@ -281,7 +296,7 @@ class RTCMValidator:
         
         # Look for RTCM preamble (0xD3)
         rtcm_found = False
-        for i in range(min(20, len(data) - 2)):
+        for i in range(min(50, len(data) - 2)):  # Check more bytes
             if data[i] == 0xD3:
                 # Validate RTCM structure
                 if len(data) >= i + 3:
@@ -295,9 +310,26 @@ class RTCMValidator:
                     except:
                         continue
         
+        # Additional checks for corrupted data
         if not rtcm_found:
+            # Check if data looks like random binary (possibly corrupted RTCM)
+            if len(data) > 20:
+                # Count repeating patterns (sign of corruption)
+                repeating_bytes = sum(1 for i in range(1, min(20, len(data))) if data[i] == data[i-1])
+                repeating_ratio = repeating_bytes / min(20, len(data))
+                
+                # Check for obvious non-RTCM patterns
+                if repeating_ratio > 0.5:  # Too many repeating bytes
+                    logger.debug(f"Rejected data: too many repeating bytes ({repeating_ratio:.1%})")
+                    return False
+                
+                # Check for all-zero or all-0xFF patterns
+                if all(b == 0x00 for b in data[:10]) or all(b == 0xFF for b in data[:10]):
+                    logger.debug("Rejected data: all zeros or all 0xFF")
+                    return False
+            
             hex_preview = ' '.join([f'{b:02x}' for b in data[:20]])
-            logger.warning(f"⚠️  No valid RTCM preamble found. First 20 bytes: {hex_preview}")
+            logger.debug(f"⚠️  No valid RTCM preamble found. First 20 bytes: {hex_preview}")
         
         return rtcm_found
     

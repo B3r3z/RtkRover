@@ -417,6 +417,8 @@ class RTKManager:
         
         consecutive_errors = 0
         max_consecutive_errors = 10
+        corruption_count = 0
+        last_corruption_log = 0
         
         while self.running and self.nmea_reader:
             try:
@@ -431,26 +433,86 @@ class RTKManager:
                          break
                     continue
 
-                # Read and process data
-                raw_data, parsed_data = self.nmea_reader.read()
+                # Read and process data with corruption detection
+                try:
+                    raw_data, parsed_data = self.nmea_reader.read()
+                except Exception as read_error:
+                    # Handle corruption at read level
+                    corruption_count += 1
+                    error_str = str(read_error).lower()
+                    
+                    if "checksum" in error_str or "format" in error_str or "crc" in error_str:
+                        # Expected corruption - don't spam logs
+                        current_time = time.time()
+                        if current_time - last_corruption_log > 10.0:  # Log every 10 seconds max
+                            logger.debug(f"GPS data corruption detected: {read_error} (count: {corruption_count})")
+                            last_corruption_log = current_time
+                    else:
+                        # Unexpected error
+                        logger.warning(f"GPS read error: {read_error}")
+                        consecutive_errors += 1
+                    
+                    # Clear corrupted data from buffer
+                    if self.gps_serial and self.gps_serial.is_open:
+                        try:
+                            # Try to flush input buffer to clear corruption
+                            self.gps_serial.reset_input_buffer()
+                            time.sleep(0.1)  # Brief pause to let things settle
+                        except:
+                            pass
+                    
+                    continue
                 
                 if raw_data and parsed_data:
-                    self._process_nmea_message(raw_data, parsed_data)
-                    consecutive_errors = 0  # Reset on success
+                    # Additional validation for corrupted data
+                    try:
+                        raw_str = raw_data.decode('ascii', errors='ignore').strip()
+                        
+                        # Check for obviously corrupted NMEA
+                        if not raw_str.startswith('$') or len(raw_str) < 10:
+                            corruption_count += 1
+                            logger.debug(f"Corrupted NMEA format detected: {raw_str[:50]}")
+                            continue
+                        
+                        # Check for repeated characters (sign of corruption)
+                        if len(set(raw_str)) < len(raw_str) * 0.3:  # Less than 30% unique characters
+                            corruption_count += 1
+                            logger.debug(f"Suspicious NMEA pattern detected: {raw_str[:50]}")
+                            continue
+                        
+                        # Process valid data
+                        self._process_nmea_message(raw_data, parsed_data)
+                        consecutive_errors = 0  # Reset on success
+                        
+                    except UnicodeDecodeError:
+                        corruption_count += 1
+                        logger.debug("Binary corruption in NMEA data")
+                        continue
+                        
                 else:
                     # This can happen with incomplete messages
                     time.sleep(0.05)
             
             except serial.SerialException as se:
-                logger.error(f"GPS serial error in NMEA loop: {se}")
-                consecutive_errors += 1
+                error_msg = str(se)
+                if "device reports readiness to read but returned no data" in error_msg:
+                    # Common issue - don't spam logs
+                    logger.debug(f"GPS serial timeout: {se}")
+                else:
+                    logger.error(f"GPS serial error in NMEA loop: {se}")
+                    consecutive_errors += 1
                 time.sleep(GPS_RECONNECT_INTERVAL)
+                
             except Exception as e:
                 # Handle checksum and other parsing errors from pynmeagps
-                if "checksum" in str(e).lower() or "format" in str(e).lower():
+                error_str = str(e).lower()
+                if "checksum" in error_str or "format" in error_str or "crc" in error_str:
                     self._stats['nmea_errors'] += 1
-                    if self._stats['nmea_errors'] % 20 == 0: # Log periodically to avoid spam
-                        logger.debug(f"NMEA format/checksum error: {e}")
+                    corruption_count += 1
+                    
+                    # Log periodically to avoid spam
+                    if self._stats['nmea_errors'] % 20 == 0:
+                        logger.debug(f"NMEA format/checksum error: {e} (total: {self._stats['nmea_errors']})")
                 else:
                     logger.warning(f"Unhandled NMEA loop error: {e}")
                     consecutive_errors += 1
@@ -463,7 +525,7 @@ class RTKManager:
                 self.running = False # Signal other threads to stop
                 break
                 
-        logger.info(f"NMEA processing loop ended (total checksum errors: {self._stats['nmea_errors']})")
+        logger.info(f"NMEA processing loop ended (checksum errors: {self._stats['nmea_errors']}, corruption events: {corruption_count})")
     
     def _process_nmea_message(self, raw_data, parsed_data):
         """Process NMEA message and extract position data"""
@@ -534,9 +596,10 @@ class RTKManager:
         should_warn = (current_time - self._last_warning_time) > 30
         
         if should_warn:
-            # High HDOP warning
+            # High HDOP warning with automated recovery
             if hdop > 5.0:
                 logger.warning(f"Poor HDOP: {hdop:.1f} (>5.0) - RTK Fixed unlikely. Check antenna position!")
+                self._handle_poor_hdop(hdop, position_data)
                 self._last_warning_time = current_time
             elif hdop > 2.0 and rtk_status == "Single":
                 logger.info(f"Marginal HDOP: {hdop:.1f} (>2.0) - waiting for better satellite geometry for RTK")
@@ -551,6 +614,55 @@ class RTKManager:
             if rtk_status == "Single" and hdop <= 2.0 and satellites >= 8:
                 logger.info(f"Good signal quality (HDOP:{hdop:.1f}, Sats:{satellites}) but no RTK - check NTRIP corrections")
                 self._last_warning_time = current_time
+    
+    def _handle_poor_hdop(self, hdop, position_data):
+        """Handle poor HDOP conditions with automated recovery attempts"""
+        satellites = position_data.get("satellites", 0)
+        
+        # Track poor HDOP events
+        if not hasattr(self, '_poor_hdop_count'):
+            self._poor_hdop_count = 0
+            self._last_hdop_recovery = 0
+        
+        self._poor_hdop_count += 1
+        current_time = time.time()
+        
+        # Try automated recovery every 60 seconds
+        if current_time - self._last_hdop_recovery > 60:
+            logger.warning(f"Poor HDOP: {hdop:.1f} (>5.0) - attempting automated recovery...")
+            
+            # Strategy 1: Clear GPS input buffer to remove corrupted data
+            if self.gps_serial and self.gps_serial.is_open:
+                try:
+                    bytes_in_buffer = self.gps_serial.in_waiting
+                    if bytes_in_buffer > 0:
+                        self.gps_serial.reset_input_buffer()
+                        logger.info(f"🔧 Cleared {bytes_in_buffer} bytes from GPS buffer")
+                except Exception as e:
+                    logger.debug(f"Failed to clear GPS buffer: {e}")
+            
+            # Strategy 2: Reset RTCM parser buffer
+            if hasattr(self, 'rtcm_parser') and self.rtcm_parser:
+                try:
+                    self.rtcm_parser.reset()
+                    logger.info("🔧 Reset RTCM parser buffer")
+                except:
+                    pass
+            
+            # Strategy 3: Log antenna positioning advice
+            if satellites < 8:
+                logger.warning(f"💡 Poor HDOP + low satellites ({satellites}) suggests antenna obstruction")
+                logger.warning("   📡 Move antenna to open sky with clear view of horizon")
+            else:
+                logger.warning(f"💡 Poor HDOP with good satellites ({satellites}) suggests interference")
+                logger.warning("   📡 Check for metal objects, buildings, or electronic interference near antenna")
+            
+            self._last_hdop_recovery = current_time
+        
+        # Log persistent issues
+        if self._poor_hdop_count % 50 == 0:  # Every 50 poor readings
+            logger.error(f"❌ Persistent poor HDOP: {self._poor_hdop_count} consecutive readings > 5.0")
+            logger.error("   🔧 Consider: 1) Relocating antenna 2) Checking connections 3) Verifying mount point")
     
     def _build_gga_sentence(self):
         """Build GGA sentence from current position for NTRIP upload"""
@@ -604,6 +716,10 @@ class RTKManager:
             self.gga_thread.join(timeout=2)
         
         self._cleanup_connections()
+        
+        # Log final statistics
+        self._log_final_statistics()
+        
         logger.info("RTK system stopped")
     
     def _cleanup_connections(self):
@@ -695,3 +811,33 @@ class RTKManager:
     def get_track_data(self):
         """Get track data - placeholder for position tracker integration"""
         return {"session_id": "", "points": []}
+    
+    def _log_final_statistics(self):
+        """Log comprehensive statistics when system stops"""
+        logger.info("📊 RTK SYSTEM FINAL STATISTICS:")
+        logger.info(f"   GPS NMEA errors: {self._stats.get('nmea_errors', 0)}")
+        logger.info(f"   RTCM messages processed: {self._stats.get('rtcm_messages', 0)}")
+        logger.info(f"   Valid RTCM messages: {self._stats.get('valid_rtcm', 0)}")
+        logger.info(f"   Invalid RTCM messages: {self._stats.get('invalid_rtcm', 0)}")
+        
+        if hasattr(self, '_poor_hdop_count'):
+            logger.info(f"   Poor HDOP events: {self._poor_hdop_count}")
+        
+        # NTRIP statistics
+        if self.ntrip_client:
+            try:
+                ntrip_stats = self.ntrip_client.get_statistics()
+                if ntrip_stats:
+                    logger.info(f"   NTRIP bytes received: {ntrip_stats.get('bytes_received', 0)}")
+                    logger.info(f"   NTRIP connection uptime: {ntrip_stats.get('uptime', 0):.1f}s")
+            except:
+                logger.info("   NTRIP statistics unavailable")
+                
+        # Current status
+        if self.current_position:
+            pos = self.current_position
+            logger.info(f"   Final RTK status: {pos.get('rtk_status', 'Unknown')}")
+            logger.info(f"   Final HDOP: {pos.get('hdop', 0):.1f}")
+            logger.info(f"   Final satellites: {pos.get('satellites', 0)}")
+        else:
+            logger.info("   No position data received")
