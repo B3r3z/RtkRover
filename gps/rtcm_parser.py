@@ -72,7 +72,9 @@ class RTCMParser:
             1097: "Galileo MSM7",
             1124: "BeiDou MSM4",
             1125: "BeiDou MSM5",
-            1127: "BeiDou MSM7"
+            1127: "BeiDou MSM7",
+            1230: "GLONASS Code-Phase Biases",
+            4094: "Proprietary (4094)"
         }
     
     def add_data(self, data: bytes) -> List[RTCMMessage]:
@@ -94,7 +96,7 @@ class RTCMParser:
         max_iterations = 10  # Prevent infinite loops
         iterations = 0
         
-        while len(self.buffer) >= 6 and iterations < max_iterations:
+        while len(self.buffer) >= 1 and iterations < max_iterations:
             iterations += 1
             
             # Look for RTCM preamble (0xD3)
@@ -113,6 +115,24 @@ class RTCMParser:
                 discarded = self.buffer[:preamble_idx]
                 self.buffer = self.buffer[preamble_idx:]
                 logger.debug(f"Discarded {len(discarded)} bytes before RTCM preamble")
+
+            # Ensure we have header to know expected total length
+            if len(self.buffer) < 3:
+                break  # Wait for more data
+            try:
+                header = struct.unpack('>I', b'\x00' + self.buffer[0:3])[0]
+                length = header & 0x3FF
+                total_length = 3 + length + 3
+                if length <= 0 or length > 1023:
+                    # Corrupt header; drop one byte and resync
+                    self.buffer = self.buffer[1:]
+                    continue
+                if len(self.buffer) < total_length:
+                    # Incomplete message, wait for more data
+                    break
+            except Exception:
+                # Can't parse header yet, wait for more
+                break
             
             # Try to parse message
             message = self._parse_message()
@@ -130,7 +150,7 @@ class RTCMParser:
     def reset(self):
         """Reset parser state and clear buffers"""
         logger.info("🔄 Resetting RTCM parser - clearing all buffers")
-        self.buffer = b''
+        self.buffer = bytearray()
         self.incomplete_message = None
         # Reset any internal state if needed
     
@@ -195,9 +215,8 @@ class RTCMParser:
             is_valid = self._validate_crc(raw_message[:-3], crc)
             if not is_valid:
                 self.stats['crc_errors'] += 1
-                logger.warning(f"Invalid CRC for RTCM message type {msg_type}")
-                # Consume the message from buffer and discard
-                self.buffer = self.buffer[total_length:]
+                logger.warning(f"Invalid CRC for RTCM message type {msg_type} (len={length})")
+                # Do not consume here; let caller decide how to resync
                 return None
 
             # Update statistics
@@ -213,10 +232,6 @@ class RTCMParser:
                 self.stats['unknown_messages'] += 1
 
             logger.debug(f"📡 RTCM Message: Type {msg_type} ({msg_name}), Length: {length}, Valid: {is_valid}")
-
-            # Consume message from buffer
-            self.buffer = self.buffer[total_length:]
-
             return RTCMMessage(
                 message_type=msg_type,
                 length=length,
@@ -229,8 +244,6 @@ class RTCMParser:
         except Exception as e:
             logger.error(f"Error parsing RTCM message: {e}")
             self.stats['parse_errors'] += 1
-            # Consume some data to avoid getting stuck
-            self.buffer = self.buffer[1:]
             return None
 
     def _validate_crc(self, data: bytes, received_crc: int) -> bool:
