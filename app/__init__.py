@@ -299,7 +299,7 @@ def _register_routes(app):
                     "flask_app": "running",
                     "rtk_manager": "running" if rtk_manager and rtk_manager.running else "stopped",
                     "gps_connection": "connected" if rtk_manager and rtk_manager.gps_serial else "disconnected",
-                    "ntrip_connection": "connected" if rtk_manager and rtk_manager.ntrip_socket else "disconnected"
+                    "ntrip_connection": "connected" if rtk_manager and rtk_manager.ntrip_client and rtk_manager.ntrip_client.is_connected() else "disconnected"
                 }
             }
             
