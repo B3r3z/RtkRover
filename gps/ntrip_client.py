@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Enhanced NTRIP Client for RTK Rover
+Enhanced NTRIP Client for RTK Rover with proper RTCM parsing
 Based on ntrip_client_new but adapted to the application architecture
-Provides clean separation between GPS and NTRIP functionality
+Provides clean separation between GPS and NTRIP functionality with RTCM validation
 """
 
 import socket
@@ -15,6 +15,7 @@ import logging
 import ssl
 from typing import Optional, Callable, Dict, Any
 from config.nmea_utils import build_dummy_gga
+from .rtcm_parser import RTCMParser, RTCMValidator, RTCMMessage
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,10 @@ class NTRIPClient:
         self.last_data_time = 0
         self._data_thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
+        
+        # RTCM Parser for proper message handling
+        self.rtcm_parser = RTCMParser()
+        self.rtcm_validator = RTCMValidator()
         
         # Configuration validation
         self._validate_config()
@@ -281,13 +286,48 @@ class NTRIPClient:
                     self.bytes_received += len(data)
                     self.last_data_time = time.time()
                     
-                    # Validate and process RTCM data
-                    if self._validate_rtcm_data(data):
-                        data_callback(data)
-                        if self.verbose:
-                            logger.debug(f"Received {len(data)} bytes of RTCM data")
+                    # Detect data type first
+                    data_type = self.rtcm_validator.detect_data_type(data)
+                    
+                    if data_type == 'nmea':
+                        # Critical error - NTRIP should never send NMEA
+                        text = data.decode('ascii', errors='ignore').strip()
+                        logger.error(f"❌ CRITICAL: NTRIP Mount Point '{self.config.get('mountpoint', 'unknown')}' sending NMEA instead of RTCM!")
+                        logger.error(f"   Received NMEA: {text[:100]}...")
+                        logger.error(f"   🔧 FIX: Change mount point to one that provides RTCM corrections")
+                        logger.error(f"   📡 Suggested mount points: NEAR, POZN, WROC (for Poland)")
+                        continue  # Skip this data
+                    
+                    elif data_type == 'rtcm':
+                        # Parse RTCM messages
+                        rtcm_messages = self.rtcm_parser.add_data(data)
+                        
+                        if rtcm_messages:
+                            # Process each complete RTCM message
+                            for message in rtcm_messages:
+                                if message.is_valid:
+                                    # Forward valid RTCM message to GPS
+                                    data_callback(message.raw_message)
+                                    
+                                    msg_name = self.rtcm_parser.rtcm_message_types.get(
+                                        message.message_type, f"Type {message.message_type}"
+                                    )
+                                    logger.info(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
+                                else:
+                                    logger.warning(f"⚠️  Invalid RTCM message type {message.message_type} (CRC failed)")
+                        
+                        # Forward raw data as well (for compatibility)
+                        if not rtcm_messages:
+                            # If no complete messages were parsed, forward raw data
+                            data_callback(data)
+                            logger.debug(f"📡 Raw RTCM data: {len(data)} bytes → GPS")
+                    
                     else:
-                        logger.warning(f"Received non-RTCM data: {data[:50]}...")
+                        # Unknown data type
+                        hex_preview = ' '.join([f'{b:02x}' for b in data[:20]])
+                        logger.warning(f"⚠️  Unknown data type from NTRIP. First 20 bytes: {hex_preview}")
+                        # Still forward it, might be fragmented RTCM
+                        data_callback(data)
                     
                     # Send periodic GGA updates
                     current_time = time.time()
@@ -324,19 +364,6 @@ class NTRIPClient:
         
         logger.info("NTRIP data reception loop ended")
         self.running = False
-    
-    def _validate_rtcm_data(self, data: bytes) -> bool:
-        """Validate if received data contains RTCM messages"""
-        if not data or len(data) < 3:
-            return False
-        
-        # Check for RTCM 3.x preamble (0xD3)
-        for i in range(len(data) - 2):
-            if data[i] == 0xD3:
-                return True
-        
-        # Also allow raw binary data that might be RTCM
-        return True
     
     def _send_periodic_gga(self):
         """Send periodic GGA update to caster"""
@@ -397,8 +424,8 @@ class NTRIPClient:
                     self.socket = None
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get client statistics"""
-        return {
+        """Get client statistics including RTCM parser stats"""
+        base_stats = {
             'connected': self.connected,
             'running': self.running,
             'bytes_received': self.bytes_received,
@@ -412,6 +439,12 @@ class NTRIPClient:
                 'ssl': self.use_ssl
             }
         }
+        
+        # Add RTCM parser statistics
+        rtcm_stats = self.rtcm_parser.get_statistics()
+        base_stats['rtcm_parser'] = rtcm_stats
+        
+        return base_stats
     
     def is_connected(self) -> bool:
         """Check if client is connected"""

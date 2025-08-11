@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any, Callable
 from pynmeagps import NMEAReader
 from .ntrip_client import NTRIPClient, NTRIPError, NTRIPConnectionError, NTRIPAuthenticationError
+from .rtcm_parser import RTCMValidator
 from config.nmea_utils import build_dummy_gga
 
 logger = logging.getLogger(__name__)
@@ -291,29 +292,48 @@ class RTKManager:
     def _handle_rtcm_data(self, rtcm_data: bytes):
         """
         Handle RTCM data received from NTRIP client
-        Forward it to GPS receiver (like in main.py pattern)
+        Forward it to GPS receiver ONLY if it's valid RTCM data
+        NTRIP Client already validates data, but we double-check for safety
         """
         try:
             if self.gps_serial and rtcm_data:
-                # Write RTCM data directly to GPS (like main.py: self.stream.write(data))
-                bytes_written = self.gps_serial.write(rtcm_data)
+                # Quick validation using RTCMValidator
+                data_type = RTCMValidator.detect_data_type(rtcm_data)
                 
-                # Update statistics
-                self._stats['rtcm_bytes_received'] += len(rtcm_data)
-                self._stats['last_rtcm_time'] = time.time()
-                self._stats['rtcm_messages_processed'] += 1
-                
-                # Verify write was successful
-                if bytes_written != len(rtcm_data):
-                    logger.warning(f"RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
+                if data_type == 'rtcm':
+                    # Write RTCM data directly to GPS
+                    bytes_written = self.gps_serial.write(rtcm_data)
+                    
+                    # Update statistics
+                    self._stats['rtcm_bytes_received'] += len(rtcm_data)
+                    self._stats['last_rtcm_time'] = time.time()
+                    self._stats['rtcm_messages_processed'] += 1
+                    
+                    # Verify write was successful
+                    if bytes_written != len(rtcm_data):
+                        logger.warning(f"⚠️  RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
+                    else:
+                        logger.debug(f"✅ Forwarded {len(rtcm_data)} bytes of RTCM corrections to GPS")
+                    
+                    # Force flush to ensure data reaches GPS immediately
+                    self.gps_serial.flush()
+                    
+                    # Read any immediate GPS response
+                    self._process_immediate_gps_response()
+                    
+                elif data_type == 'nmea':
+                    # This should never happen if NTRIP client is working correctly
+                    nmea_str = rtcm_data.decode('ascii', errors='ignore').strip()
+                    logger.error(f"❌ RTK Manager received NMEA instead of RTCM: {nmea_str[:80]}...")
+                    logger.error("🔧 This indicates a configuration problem with the NTRIP mount point!")
+                    
                 else:
-                    logger.debug(f"Forwarded {len(rtcm_data)} bytes of RTCM to GPS")
-                
-                # Force flush to ensure data reaches GPS immediately
-                self.gps_serial.flush()
-                
-                # Read any immediate GPS response (like main.py pattern)
-                self._process_immediate_gps_response()
+                    # Unknown data format - log for debugging
+                    hex_preview = ' '.join([f'{b:02x}' for b in rtcm_data[:20]])
+                    logger.warning(f"⚠️  Unknown data format from NTRIP: {hex_preview}")
+                    # Still forward it, might be fragmented RTCM
+                    self.gps_serial.write(rtcm_data)
+                    self.gps_serial.flush()
             
         except Exception as e:
             logger.error(f"Error handling RTCM data: {e}")
@@ -609,7 +629,7 @@ class RTKManager:
         self.position_callback = callback
     
     def get_status(self):
-        """Get RTK system status with enhanced diagnostics"""
+        """Get RTK system status with enhanced diagnostics and RTCM statistics"""
         status = {
             "rtk_status": self.rtk_status,
             "running": self.running,
@@ -617,6 +637,17 @@ class RTKManager:
             "gps_connected": self.gps_serial is not None,
             "current_position": self.current_position
         }
+        
+        # Add NTRIP client statistics if available
+        if self.ntrip_client:
+            ntrip_stats = self.ntrip_client.get_statistics()
+            status["ntrip_statistics"] = ntrip_stats
+            
+            # Add RTCM parser statistics for detailed diagnostics
+            rtcm_stats = ntrip_stats.get('rtcm_parser', {})
+            status["rtcm_messages_parsed"] = rtcm_stats.get('total_parsed', 0)
+            status["rtcm_parse_errors"] = rtcm_stats.get('parse_errors', 0)
+            status["rtcm_message_types"] = rtcm_stats.get('message_types', {})
         
         # Add signal quality assessment
         if self.current_position:
