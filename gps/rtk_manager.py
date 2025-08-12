@@ -1017,23 +1017,29 @@ class RTKManager:
         if not hasattr(self, '_gga_check_time'):
             self._gga_check_time = time.time()
             self._gga_missing_count = 0
+            self._gga_config_sent = False
             return
         
         current_time = time.time()
         
-        # Check every 30 seconds if GGA is missing
-        if current_time - self._gga_check_time > 30:
+        # Check every 15 seconds if GGA is missing (faster than before)
+        if current_time - self._gga_check_time > 15:
             self._gga_missing_count += 1
             self._gga_check_time = current_time
             
-            if self._gga_missing_count >= 3:  # After 90 seconds without GGA
-                logger.warning("🚨 GGA messages missing for 90+ seconds - GPS might not be configured to send GGA")
-                logger.info("💡 Using GLL as position source, but RTK status will be limited")
+            # Try to enable GGA after just 30 seconds (2 checks) if not done already
+            if self._gga_missing_count >= 2 and not self._gga_config_sent:
+                logger.warning("🚨 GGA messages missing for 30+ seconds - attempting to enable GGA")
+                logger.info("💡 Currently using GLL as position source, attempting to enable full GGA data")
                 
-                # Try to manually request GGA configuration (some GPS modules support this)
+                # Try to manually request GGA configuration
                 self._try_enable_gga_messages()
+                self._gga_config_sent = True
                 
-                self._gga_missing_count = 0  # Reset counter
+            elif self._gga_missing_count >= 6 and self._gga_config_sent:  # After 90 seconds total
+                logger.info("📊 GPS appears to be configured without GGA - continuing with GLL + GSA data")
+                logger.info(f"💼 Position source: GLL, Quality data: GSA (HDOP={getattr(self, '_last_hdop', 0.0):.1f}, Sats={getattr(self, '_last_satellite_count', 0)})")
+                self._gga_missing_count = 0  # Reset to avoid spam
     
     def _try_enable_gga_messages(self):
         """Try to enable GGA messages via GPS configuration commands"""
@@ -1041,23 +1047,44 @@ class RTKManager:
             if self.gps_serial and self.gps_serial.is_open:
                 logger.info("🔧 Attempting to enable GGA messages...")
                 
-                # Common NMEA configuration commands for enabling GGA
-                gga_enable_commands = [
-                    b"$PMTK314,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA
-                    b"$PAIR062,1,1*38\r\n",  # PAIR: Enable GGA for LC29H
-                    b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable GGA
+                # LC29H specific PAIR commands for enabling NMEA messages
+                lc29h_commands = [
+                    # Enable all standard NMEA messages including GGA
+                    b"$PAIR062,1,1*38\r\n",  # Enable GGA
+                    b"$PAIR062,2,1*3B\r\n",  # Enable GLL  
+                    b"$PAIR062,3,1*3A\r\n",  # Enable GSA
+                    b"$PAIR062,4,1*3D\r\n",  # Enable GSV
+                    b"$PAIR062,5,1*3C\r\n",  # Enable RMC
+                    b"$PAIR062,6,1*3F\r\n",  # Enable VTG
+                    
+                    # Alternative LC29H NMEA output configuration
+                    b"$PAIR001,0,0,1,1,1,1,0,0*3C\r\n",  # Configure NMEA output: GGA,GLL,GSA,GSV,RMC,VTG
+                    
+                    # Force NMEA mode and output rate
+                    b"$PAIR000,1*3C\r\n",   # Set NMEA mode
+                    b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
                 ]
                 
-                for cmd in gga_enable_commands:
+                # Also try common NMEA configuration commands
+                generic_commands = [
+                    b"$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA,GLL,GSA,GSV,RMC,VTG
+                    b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable standard NMEA
+                ]
+                
+                all_commands = lc29h_commands + generic_commands
+                
+                for cmd in all_commands:
                     try:
-                        logger.debug(f"Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
+                        logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
                         self.gps_serial.write(cmd)
                         self.gps_serial.flush()
-                        time.sleep(0.1)  # Brief pause between commands
+                        time.sleep(0.2)  # Longer pause for LC29H to process
                     except Exception as cmd_error:
                         logger.debug(f"GPS config command failed: {cmd_error}")
                         continue
                 
+                # Wait for GPS to apply changes
+                time.sleep(2.0)
                 logger.info("🔧 GGA enable commands sent - monitoring for changes...")
                 
         except Exception as e:
