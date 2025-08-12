@@ -818,7 +818,17 @@ class RTKManager:
             
             # Look for GGA sentences (like Waveshare searches for GNGGA)
             if hasattr(parsed_data, 'msgID'):
-                logger.debug(f"📍 NMEA msgID: {parsed_data.msgID}")
+                # Log all message types to understand what GPS sends
+                if not hasattr(self, '_msg_type_counts'):
+                    self._msg_type_counts = {}
+                
+                msg_id = parsed_data.msgID
+                self._msg_type_counts[msg_id] = self._msg_type_counts.get(msg_id, 0) + 1
+                
+                # Log message type counts every 50 messages
+                total_messages = sum(self._msg_type_counts.values())
+                if total_messages % 50 == 0:
+                    logger.info(f"� NMEA message statistics (last 50): {dict(self._msg_type_counts)}")
                 
                 if parsed_data.msgID in ['GGA']:
                     logger.info("🎯 Processing GGA message")
@@ -826,6 +836,13 @@ class RTKManager:
                 elif parsed_data.msgID in ['GLL']:
                     logger.info("🎯 Processing GLL message (position backup)")
                     self._process_gll_message(parsed_data)
+                    
+                    # Check if we should look for GGA in the same data stream
+                    self._check_for_missing_gga()
+                elif parsed_data.msgID in ['GSA']:
+                    # Extract HDOP and satellite info from GSA messages
+                    self._process_gsa_message(parsed_data)
+                    logger.debug(f"ℹ️  Processed GSA message for HDOP/satellite data")
                 else:
                     logger.debug(f"ℹ️  Skipping non-position message: {parsed_data.msgID}")
             else:
@@ -907,25 +924,38 @@ class RTKManager:
                     "lat": float(gll_data.lat) if gll_data.lat else 0.0,
                     "lon": float(gll_data.lon) if gll_data.lon else 0.0,
                     "altitude": 0.0,  # GLL doesn't contain altitude
-                    "satellites": 0,  # GLL doesn't contain satellite count
-                    "hdop": 0.0,     # GLL doesn't contain HDOP
+                    "satellites": self._get_last_satellite_count(),  # Try to get from recent GSA/GSV
+                    "hdop": self._get_last_hdop(),  # Try to get from recent GSA
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 }
                 
                 # GLL status: A = Active (valid), V = Void (invalid)
                 if hasattr(gll_data, 'status') and gll_data.status == 'A':
-                    position_data["rtk_status"] = "Single"  # GLL typically indicates basic GPS fix
+                    # Try to determine better RTK status from HDOP and satellites
+                    hdop = position_data.get("hdop", 0.0)
+                    satellites = position_data.get("satellites", 0)
+                    
+                    if hdop > 0 and hdop < 1.0 and satellites >= 12:
+                        position_data["rtk_status"] = "RTK Float"  # High precision suggests RTK
+                    elif hdop > 0 and hdop < 2.0 and satellites >= 8:
+                        position_data["rtk_status"] = "DGPS"  # Good precision
+                    else:
+                        position_data["rtk_status"] = "Single"  # Basic GPS fix
                 else:
                     position_data["rtk_status"] = "No Fix"
                 
                 logger.info(f"📍 Position update (GLL): lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
-                           f"status={position_data['rtk_status']}")
+                           f"alt={position_data['altitude']:.1f}m, sats={position_data['satellites']}, " +
+                           f"hdop={position_data['hdop']:.1f}, status={position_data['rtk_status']}")
                 
                 # Update status if changed
                 if position_data["rtk_status"] != self.rtk_status:
                     old_status = self.rtk_status
                     self.rtk_status = position_data["rtk_status"]
                     logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
+                
+                # Log signal quality warnings
+                self._log_signal_quality_warnings(position_data)
                 
                 # Store current position
                 with self._position_lock:
@@ -944,6 +974,94 @@ class RTKManager:
         except Exception as e:
             logger.error(f"Error processing GLL: {e}")
             logger.debug(f"GLL data: {gll_data}")
+    
+    def _get_last_satellite_count(self):
+        """Get satellite count from recent GSA messages"""
+        if not hasattr(self, '_last_satellite_count'):
+            self._last_satellite_count = 0
+        return self._last_satellite_count
+    
+    def _get_last_hdop(self):
+        """Get HDOP from recent GSA messages"""
+        if not hasattr(self, '_last_hdop'):
+            self._last_hdop = 0.0
+        return self._last_hdop
+    
+    def _process_gsa_message(self, gsa_data):
+        """Process GSA message to extract HDOP and satellite count"""
+        try:
+            # Extract HDOP from GSA
+            if hasattr(gsa_data, 'HDOP') and gsa_data.HDOP:
+                self._last_hdop = float(gsa_data.HDOP)
+                logger.debug(f"📊 Updated HDOP from GSA: {self._last_hdop:.2f}")
+            
+            # Count active satellites from GSA
+            satellite_count = 0
+            if hasattr(gsa_data, 'svid_01') and gsa_data.svid_01:
+                # GSA contains up to 12 satellite IDs
+                for i in range(1, 13):
+                    svid_attr = f'svid_{i:02d}'
+                    if hasattr(gsa_data, svid_attr):
+                        svid = getattr(gsa_data, svid_attr)
+                        if svid and svid != '':
+                            satellite_count += 1
+                
+                self._last_satellite_count = satellite_count
+                logger.debug(f"📊 Updated satellite count from GSA: {satellite_count}")
+            
+        except Exception as e:
+            logger.debug(f"Error processing GSA: {e}")
+    
+    def _check_for_missing_gga(self):
+        """Check if GPS configuration is missing GGA messages and try to enable them"""
+        if not hasattr(self, '_gga_check_time'):
+            self._gga_check_time = time.time()
+            self._gga_missing_count = 0
+            return
+        
+        current_time = time.time()
+        
+        # Check every 30 seconds if GGA is missing
+        if current_time - self._gga_check_time > 30:
+            self._gga_missing_count += 1
+            self._gga_check_time = current_time
+            
+            if self._gga_missing_count >= 3:  # After 90 seconds without GGA
+                logger.warning("🚨 GGA messages missing for 90+ seconds - GPS might not be configured to send GGA")
+                logger.info("💡 Using GLL as position source, but RTK status will be limited")
+                
+                # Try to manually request GGA configuration (some GPS modules support this)
+                self._try_enable_gga_messages()
+                
+                self._gga_missing_count = 0  # Reset counter
+    
+    def _try_enable_gga_messages(self):
+        """Try to enable GGA messages via GPS configuration commands"""
+        try:
+            if self.gps_serial and self.gps_serial.is_open:
+                logger.info("🔧 Attempting to enable GGA messages...")
+                
+                # Common NMEA configuration commands for enabling GGA
+                gga_enable_commands = [
+                    b"$PMTK314,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA
+                    b"$PAIR062,1,1*38\r\n",  # PAIR: Enable GGA for LC29H
+                    b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable GGA
+                ]
+                
+                for cmd in gga_enable_commands:
+                    try:
+                        logger.debug(f"Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
+                        self.gps_serial.write(cmd)
+                        self.gps_serial.flush()
+                        time.sleep(0.1)  # Brief pause between commands
+                    except Exception as cmd_error:
+                        logger.debug(f"GPS config command failed: {cmd_error}")
+                        continue
+                
+                logger.info("🔧 GGA enable commands sent - monitoring for changes...")
+                
+        except Exception as e:
+            logger.debug(f"Error enabling GGA: {e}")
     
     def _log_signal_quality_warnings(self, position_data):
         """Log warnings about poor signal quality that affects RTK performance"""
