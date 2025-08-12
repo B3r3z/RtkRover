@@ -3,8 +3,11 @@ import threading
 import time
 import logging
 import sys
+import queue
+import collections
+import statistics
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List, Tuple
 from pynmeagps import NMEAReader
 from .ntrip_client import NTRIPClient, NTRIPError, NTRIPConnectionError, NTRIPAuthenticationError
 from .rtcm_parser import RTCMValidator
@@ -15,6 +18,122 @@ logger = logging.getLogger(__name__)
 NTRIP_RECONNECT_INTERVAL = 1.0  # seconds between NTRIP reconnection attempts
 GPS_RECONNECT_INTERVAL = 5.0    # seconds between GPS reconnection attempts
 GGA_UPLOAD_INTERVAL = 10.0      # seconds between GGA uploads to NTRIP
+
+# Queue configuration
+RTCM_QUEUE_SIZE = 100          # Maximum RTCM messages in queue
+NMEA_BUFFER_SIZE = 200         # Maximum NMEA messages in buffer
+PERFORMANCE_WINDOW_SIZE = 1000 # Number of operations to track for performance
+
+class PerformanceMonitor:
+    """Monitor RTK system performance metrics"""
+    
+    def __init__(self):
+        self.metrics = {
+            'nmea_read_latency': collections.deque(maxlen=PERFORMANCE_WINDOW_SIZE),
+            'rtcm_write_latency': collections.deque(maxlen=PERFORMANCE_WINDOW_SIZE),
+            'queue_depths': collections.deque(maxlen=PERFORMANCE_WINDOW_SIZE),
+            'corruption_events': 0,
+            'total_operations': 0
+        }
+        self._lock = threading.Lock()
+    
+    def track_operation(self, operation: str, duration: float):
+        """Track operation performance"""
+        with self._lock:
+            if f'{operation}_latency' in self.metrics:
+                self.metrics[f'{operation}_latency'].append(duration)
+                self.metrics['total_operations'] += 1
+    
+    def track_queue_depth(self, depth: int):
+        """Track queue depth"""
+        with self._lock:
+            self.metrics['queue_depths'].append(depth)
+    
+    def increment_corruption(self):
+        """Increment corruption event counter"""
+        with self._lock:
+            self.metrics['corruption_events'] += 1
+    
+    def get_performance_report(self) -> Dict[str, Any]:
+        """Generate performance analysis"""
+        with self._lock:
+            report = {}
+            
+            if self.metrics['nmea_read_latency']:
+                report['avg_nmea_latency_ms'] = statistics.mean(self.metrics['nmea_read_latency']) * 1000
+                report['max_nmea_latency_ms'] = max(self.metrics['nmea_read_latency']) * 1000
+            
+            if self.metrics['rtcm_write_latency']:
+                report['avg_rtcm_latency_ms'] = statistics.mean(self.metrics['rtcm_write_latency']) * 1000
+                report['max_rtcm_latency_ms'] = max(self.metrics['rtcm_write_latency']) * 1000
+            
+            if self.metrics['queue_depths']:
+                report['avg_queue_depth'] = statistics.mean(self.metrics['queue_depths'])
+                report['max_queue_depth'] = max(self.metrics['queue_depths'])
+            
+            if self.metrics['total_operations'] > 0:
+                report['corruption_rate'] = self.metrics['corruption_events'] / self.metrics['total_operations']
+            
+            return report
+
+class SerialBufferManager:
+    """Manage serial data buffers and separation"""
+    
+    def __init__(self):
+        self.nmea_buffer = bytearray()
+        self.rtcm_buffer = bytearray()
+        self.corruption_detector = RTCMValidator()
+        self._buffer_lock = threading.Lock()
+        
+    def process_serial_data(self, data: bytes) -> Tuple[List[bytes], List[bytes]]:
+        """Separate NMEA and RTCM data efficiently"""
+        with self._buffer_lock:
+            nmea_messages = []
+            rtcm_messages = []
+            
+            # Add to buffer
+            self.nmea_buffer.extend(data)
+            
+            # Extract complete messages
+            while True:
+                # Look for NMEA messages (start with $, end with \r\n)
+                nmea_start = self.nmea_buffer.find(b'$')
+                if nmea_start >= 0:
+                    nmea_end = self.nmea_buffer.find(b'\r\n', nmea_start)
+                    if nmea_end >= 0:
+                        # Extract complete NMEA message
+                        nmea_msg = bytes(self.nmea_buffer[nmea_start:nmea_end + 2])
+                        nmea_messages.append(nmea_msg)
+                        # Remove from buffer
+                        del self.nmea_buffer[nmea_start:nmea_end + 2]
+                        continue
+                
+                # Look for RTCM messages (start with 0xD3)
+                rtcm_start = self.nmea_buffer.find(b'\xd3')
+                if rtcm_start >= 0:
+                    # Check if we have enough data for length
+                    if len(self.nmea_buffer) >= rtcm_start + 3:
+                        # Extract RTCM length
+                        length_bytes = self.nmea_buffer[rtcm_start + 1:rtcm_start + 3]
+                        rtcm_length = ((length_bytes[0] & 0x03) << 8) | length_bytes[1]
+                        total_length = rtcm_length + 6  # Header (3) + Data + CRC (3)
+                        
+                        if len(self.nmea_buffer) >= rtcm_start + total_length:
+                            # Extract complete RTCM message
+                            rtcm_msg = bytes(self.nmea_buffer[rtcm_start:rtcm_start + total_length])
+                            rtcm_messages.append(rtcm_msg)
+                            # Remove from buffer
+                            del self.nmea_buffer[rtcm_start:rtcm_start + total_length]
+                            continue
+                
+                # No more complete messages
+                break
+            
+            # Trim buffer if too large
+            if len(self.nmea_buffer) > 4096:
+                self.nmea_buffer = self.nmea_buffer[-2048:]
+            
+            return nmea_messages, rtcm_messages
 
 class RTKError(Exception):
     """Base exception for RTK-related errors"""
@@ -40,9 +159,19 @@ class RTKManager:
         self.position_callback: Optional[Callable] = None
         self.current_position: Optional[Dict[str, Any]] = None
         
+        # Threading and synchronization
         self._state_lock = threading.RLock()
         self._position_lock = threading.Lock()
         
+        # Queue-based architecture
+        self.rtcm_write_queue = queue.Queue(maxsize=RTCM_QUEUE_SIZE)
+        self.nmea_read_buffer = collections.deque(maxlen=NMEA_BUFFER_SIZE)
+        
+        # Performance monitoring
+        self.performance_monitor = PerformanceMonitor()
+        self.buffer_manager = SerialBufferManager()
+        
+        # Configuration
         try:
             from config.settings import rtk_config, uart_config
             self.ntrip_config = rtk_config
@@ -52,9 +181,12 @@ class RTKManager:
             logger.error(f"Configuration error: {e}")
             raise RTKConfigurationError(f"Invalid configuration: {e}")
         
+        # Threads
         self.nmea_thread: Optional[threading.Thread] = None
         self.gga_thread: Optional[threading.Thread] = None
+        self.rtcm_writer_thread: Optional[threading.Thread] = None
         
+        # Statistics
         self._stats = {
             'rtcm_bytes_received': 0,
             'gga_uploads_sent': 0,
@@ -63,6 +195,8 @@ class RTKManager:
             'last_rtcm_time': 0,
             'last_gga_time': 0,
             'rtcm_messages_processed': 0,
+            'rtcm_messages_queued': 0,
+            'rtcm_queue_overflows': 0,
             'gga_real_vs_synthetic': {'real': 0, 'synthetic': 0, 'dummy': 0}
         }
         
@@ -90,6 +224,9 @@ class RTKManager:
             if self.ntrip_client:
                 ntrip_stats = self.ntrip_client.get_statistics()
             
+            # Include performance metrics
+            performance_report = self.performance_monitor.get_performance_report()
+            
             return {
                 **self._stats,
                 'running': self.running,
@@ -100,9 +237,84 @@ class RTKManager:
                 'threads_alive': {
                     'nmea': self.nmea_thread and self.nmea_thread.is_alive(),
                     'gga': self.gga_thread and self.gga_thread.is_alive(),
+                    'rtcm_writer': self.rtcm_writer_thread and self.rtcm_writer_thread.is_alive(),
                 },
+                'queue_status': {
+                    'rtcm_queue_size': self.rtcm_write_queue.qsize(),
+                    'nmea_buffer_size': len(self.nmea_read_buffer),
+                },
+                'performance': performance_report,
                 'ntrip': ntrip_stats
             }
+    
+    def _rtcm_writer_loop(self):
+        """Dedicated RTCM writer thread - handles all serial writes asynchronously"""
+        logger.info("RTCM writer thread started")
+        
+        write_failures = 0
+        max_write_failures = 5
+        
+        while self.running:
+            try:
+                # Get RTCM data from queue with timeout
+                start_time = time.time()
+                try:
+                    rtcm_data = self.rtcm_write_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # Validate we have serial connection
+                if not self.gps_serial:
+                    logger.warning("No GPS serial connection for RTCM write")
+                    self.rtcm_write_queue.task_done()
+                    continue
+                
+                # Write RTCM data to serial port
+                try:
+                    # Thread-safe serial write
+                    with self._state_lock:
+                        if self.gps_serial and self.gps_serial.is_open:
+                            # Clear any pending input data before writing
+                            if self.gps_serial.in_waiting > 0:
+                                self.gps_serial.reset_input_buffer()
+                            
+                            # Write RTCM data
+                            bytes_written = self.gps_serial.write(rtcm_data)
+                            self.gps_serial.flush()  # Ensure immediate write
+                            
+                            # Update statistics
+                            self._stats['rtcm_messages_processed'] += 1
+                            self._stats['rtcm_bytes_received'] += len(rtcm_data)
+                            self._stats['last_rtcm_time'] = time.time()
+                            
+                            # Track performance
+                            write_duration = time.time() - start_time
+                            self.performance_monitor.track_operation('rtcm_write', write_duration)
+                            self.performance_monitor.track_queue_depth(self.rtcm_write_queue.qsize())
+                            
+                            write_failures = 0  # Reset failure counter on success
+                            
+                            logger.debug(f"✅ RTCM written: {bytes_written} bytes, queue: {self.rtcm_write_queue.qsize()}")
+                        
+                        else:
+                            logger.warning("GPS serial connection closed during RTCM write")
+                
+                except Exception as write_error:
+                    write_failures += 1
+                    logger.error(f"Serial write error ({write_failures}/{max_write_failures}): {write_error}")
+                    
+                    if write_failures >= max_write_failures:
+                        logger.error("Too many serial write failures, stopping RTCM writer")
+                        break
+                
+                # Mark task as done
+                self.rtcm_write_queue.task_done()
+                
+            except Exception as e:
+                logger.error(f"RTCM writer thread error: {e}")
+                time.sleep(0.1)  # Brief pause on error
+        
+        logger.info("RTCM writer thread stopped")
         
     def initialize(self):
         try:
@@ -292,50 +504,49 @@ class RTKManager:
     def _handle_rtcm_data(self, rtcm_data: bytes):
         """
         Handle RTCM data received from NTRIP client
-        Forward it to GPS receiver with proper synchronization to avoid NMEA corruption
+        Queue it for asynchronous writing to GPS receiver
         """
         try:
-            if self.gps_serial and rtcm_data:
-                # Quick validation using RTCMValidator
-                data_type = RTCMValidator.detect_data_type(rtcm_data)
+            if not rtcm_data:
+                return
                 
-                if data_type == 'rtcm':
-                    # Use thread-safe serial access to prevent NMEA corruption
-                    with self._state_lock:  # Synchronize with NMEA reading
-                        try:
-                            # Clear any pending input before writing RTCM
-                            # This prevents old NMEA data from interfering with new RTCM
-                            if self.gps_serial.in_waiting > 0:
-                                logger.debug(f"Clearing {self.gps_serial.in_waiting} bytes from input buffer before RTCM write")
-                                self.gps_serial.reset_input_buffer()
-                            
-                            # Write RTCM data to GPS
-                            bytes_written = self.gps_serial.write(rtcm_data)
-                            
-                            # Ensure data is immediately sent to GPS
-                            self.gps_serial.flush()
-                            
-                            # Brief pause to let GPS process RTCM data
-                            time.sleep(0.001)  # 1ms pause
-                            
-                            # Update statistics
-                            self._stats['rtcm_bytes_received'] += len(rtcm_data)
-                            self._stats['last_rtcm_time'] = time.time()
-                            self._stats['rtcm_messages_processed'] += 1
-                            
-                            # Verify write was successful
-                            if bytes_written != len(rtcm_data):
-                                logger.warning(f"⚠️  RTCM write incomplete: {bytes_written}/{len(rtcm_data)} bytes")
-                            else:
-                                logger.debug(f"✅ Forwarded {len(rtcm_data)} bytes RTCM to GPS (synchronized)")
-                                
-                        except serial.SerialException as se:
-                            logger.warning(f"Serial error during RTCM write: {se}")
-                        except Exception as e:
-                            logger.error(f"Unexpected error during RTCM write: {e}")
-                else:
-                    logger.warning(f"⚠️  Rejected non-RTCM data from NTRIP: {data_type}")
+            # Quick validation using RTCMValidator
+            data_type = RTCMValidator.detect_data_type(rtcm_data)
+            
+            if data_type == 'rtcm':
+                # Queue RTCM data for asynchronous writing
+                try:
+                    start_time = time.time()
                     
+                    # Try to add to queue (non-blocking)
+                    self.rtcm_write_queue.put_nowait(rtcm_data)
+                    
+                    # Update statistics
+                    self._stats['rtcm_messages_queued'] += 1
+                    
+                    # Track queue depth for performance monitoring
+                    queue_depth = self.rtcm_write_queue.qsize()
+                    self.performance_monitor.track_queue_depth(queue_depth)
+                    
+                    logger.debug(f"✅ RTCM queued: {len(rtcm_data)} bytes, queue depth: {queue_depth}")
+                    
+                except queue.Full:
+                    # Queue is full - drop oldest message and add new one
+                    try:
+                        dropped_data = self.rtcm_write_queue.get_nowait()
+                        self.rtcm_write_queue.put_nowait(rtcm_data)
+                        
+                        self._stats['rtcm_queue_overflows'] += 1
+                        logger.warning(f"⚠️  RTCM queue overflow: dropped {len(dropped_data)} bytes, added {len(rtcm_data)} bytes")
+                        
+                    except queue.Empty:
+                        # Shouldn't happen, but handle gracefully
+                        self.rtcm_write_queue.put_nowait(rtcm_data)
+                        logger.debug("RTCM queue was unexpectedly empty during overflow handling")
+                
+            else:
+                logger.warning(f"⚠️  Rejected non-RTCM data from NTRIP: {data_type}")
+                
         except Exception as e:
             logger.error(f"Error handling RTCM data: {e}")
             self._stats['connection_failures'] += 1
@@ -364,13 +575,33 @@ class RTKManager:
         
         threads_started = []
         
+        # Start RTCM writer thread (always needed if GPS connected)
+        if self.gps_serial:
+            self.rtcm_writer_thread = threading.Thread(
+                target=self._rtcm_writer_loop, 
+                daemon=True,
+                name="RTCMWriter"
+            )
+            self.rtcm_writer_thread.start()
+            threads_started.append("RTCM writer")
+        
+        # Start NMEA processing thread
         if self.gps_serial and self.nmea_reader:
-            self.nmea_thread = threading.Thread(target=self._nmea_loop, daemon=True)
+            self.nmea_thread = threading.Thread(
+                target=self._nmea_loop, 
+                daemon=True,
+                name="NMEAProcessor"
+            )
             self.nmea_thread.start()
             threads_started.append("NMEA processing")
         
+        # Start GGA upload thread (only if NTRIP connected)
         if self.ntrip_client and self.ntrip_client.is_connected():
-            self.gga_thread = threading.Thread(target=self._gga_upload_loop, daemon=True)
+            self.gga_thread = threading.Thread(
+                target=self._gga_upload_loop, 
+                daemon=True,
+                name="GGAUploader"
+            )
             self.gga_thread.start()
             threads_started.append("GGA uploading")
             
@@ -728,10 +959,28 @@ class RTKManager:
             self.ntrip_client = None
         
         # Wait for threads to finish
-        if self.nmea_thread and self.nmea_thread.is_alive():
-            self.nmea_thread.join(timeout=2)
-        if self.gga_thread and self.gga_thread.is_alive():
-            self.gga_thread.join(timeout=2)
+        threads_to_join = [
+            ("NMEA", self.nmea_thread),
+            ("GGA", self.gga_thread),
+            ("RTCM Writer", self.rtcm_writer_thread)
+        ]
+        
+        for thread_name, thread in threads_to_join:
+            if thread and thread.is_alive():
+                logger.debug(f"Waiting for {thread_name} thread to stop...")
+                thread.join(timeout=2)
+                if thread.is_alive():
+                    logger.warning(f"{thread_name} thread did not stop gracefully")
+                else:
+                    logger.debug(f"{thread_name} thread stopped")
+        
+        # Clear the RTCM queue
+        try:
+            while not self.rtcm_write_queue.empty():
+                self.rtcm_write_queue.get_nowait()
+                self.rtcm_write_queue.task_done()
+        except queue.Empty:
+            pass
         
         self._cleanup_connections()
         
@@ -834,12 +1083,26 @@ class RTKManager:
         """Log comprehensive statistics when system stops"""
         logger.info("📊 RTK SYSTEM FINAL STATISTICS:")
         logger.info(f"   GPS NMEA errors: {self._stats.get('nmea_errors', 0)}")
-        logger.info(f"   RTCM messages processed: {self._stats.get('rtcm_messages', 0)}")
-        logger.info(f"   Valid RTCM messages: {self._stats.get('valid_rtcm', 0)}")
-        logger.info(f"   Invalid RTCM messages: {self._stats.get('invalid_rtcm', 0)}")
+        logger.info(f"   RTCM messages processed: {self._stats.get('rtcm_messages_processed', 0)}")
+        logger.info(f"   RTCM messages queued: {self._stats.get('rtcm_messages_queued', 0)}")
+        logger.info(f"   RTCM queue overflows: {self._stats.get('rtcm_queue_overflows', 0)}")
+        logger.info(f"   RTCM bytes received: {self._stats.get('rtcm_bytes_received', 0)}")
         
         if hasattr(self, '_poor_hdop_count'):
             logger.info(f"   Poor HDOP events: {self._poor_hdop_count}")
+        
+        # Performance statistics
+        performance_report = self.performance_monitor.get_performance_report()
+        if performance_report:
+            logger.info("📈 PERFORMANCE METRICS:")
+            if 'avg_nmea_latency_ms' in performance_report:
+                logger.info(f"   Avg NMEA latency: {performance_report['avg_nmea_latency_ms']:.2f}ms")
+            if 'avg_rtcm_latency_ms' in performance_report:
+                logger.info(f"   Avg RTCM latency: {performance_report['avg_rtcm_latency_ms']:.2f}ms")
+            if 'max_queue_depth' in performance_report:
+                logger.info(f"   Max queue depth: {performance_report['max_queue_depth']}")
+            if 'corruption_rate' in performance_report:
+                logger.info(f"   Corruption rate: {performance_report['corruption_rate']:.4f}")
         
         # NTRIP statistics
         if self.ntrip_client:
