@@ -286,8 +286,11 @@ class NTRIPClient:
                     self.bytes_received += len(data)
                     self.last_data_time = time.time()
                     
+                    logger.info(f"📡 NTRIP received: {len(data)} bytes (total: {self.bytes_received})")
+                    
                     # Detect data type first
                     data_type = self.rtcm_validator.detect_data_type(data)
+                    logger.info(f"📊 Data type detected: {data_type}")
                     
                     if data_type == 'nmea':
                         # Critical error - NTRIP should never send NMEA
@@ -299,14 +302,19 @@ class NTRIPClient:
                         continue  # Skip this data
                     
                     elif data_type == 'rtcm':
+                        logger.info(f"🔧 Processing RTCM data: {len(data)} bytes")
+                        
                         # Parse RTCM messages (parser keeps its own buffer for fragments)
                         rtcm_messages = self.rtcm_parser.add_data(data)
 
                         if rtcm_messages:
+                            logger.info(f"📦 Parsed {len(rtcm_messages)} RTCM messages")
+                            
                             # Process each complete RTCM message
                             for message in rtcm_messages:
                                 if message.is_valid:
                                     # Forward valid RTCM message to GPS
+                                    logger.info(f"✅ Forwarding RTCM {message.message_type}: {len(message.raw_message)} bytes")
                                     data_callback(message.raw_message)
 
                                     msg_name = self.rtcm_parser.rtcm_message_types.get(
@@ -314,9 +322,11 @@ class NTRIPClient:
                                     )
                                     logger.debug(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
                                 else:
-                                    logger.debug(
-                                        f"Dropped RTCM type {message.message_type}: CRC invalid (len={message.length})"
+                                    logger.warning(
+                                        f"❌ Dropped RTCM type {message.message_type}: CRC invalid (len={message.length})"
                                     )
+                        else:
+                            logger.debug("📝 RTCM data buffered, waiting for complete messages")
                         # If no complete messages yet, do nothing; bytes remain buffered in parser
                     
                     else:

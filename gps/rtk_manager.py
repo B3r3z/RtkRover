@@ -294,7 +294,7 @@ class RTKManager:
                             
                             write_failures = 0  # Reset failure counter on success
                             
-                            logger.debug(f"✅ RTCM written: {bytes_written} bytes, queue: {self.rtcm_write_queue.qsize()}")
+                            logger.info(f"✅ RTCM written: {bytes_written} bytes, queue: {self.rtcm_write_queue.qsize()}, total processed: {self._stats['rtcm_messages_processed']}")
                         
                         else:
                             logger.warning("GPS serial connection closed during RTCM write")
@@ -528,7 +528,7 @@ class RTKManager:
                     queue_depth = self.rtcm_write_queue.qsize()
                     self.performance_monitor.track_queue_depth(queue_depth)
                     
-                    logger.debug(f"✅ RTCM queued: {len(rtcm_data)} bytes, queue depth: {queue_depth}")
+                    logger.info(f"📡 RTCM queued: {len(rtcm_data)} bytes, queue depth: {queue_depth}, total queued: {self._stats['rtcm_messages_queued']}")
                     
                 except queue.Full:
                     # Queue is full - drop oldest message and add new one
@@ -779,16 +779,33 @@ class RTKManager:
     def _process_nmea_message(self, raw_data, parsed_data):
         """Process NMEA message and extract position data"""
         try:
+            # Debug: Log all incoming NMEA messages
+            if raw_data:
+                raw_str = raw_data.decode('ascii', errors='ignore').strip()
+                logger.debug(f"📡 NMEA received: {raw_str}")
+            
             # Look for GGA sentences (like Waveshare searches for GNGGA)
-            if hasattr(parsed_data, 'msgID') and parsed_data.msgID in ['GGA']:
-                self._process_gga_message(parsed_data)
+            if hasattr(parsed_data, 'msgID'):
+                logger.debug(f"📍 NMEA msgID: {parsed_data.msgID}")
+                
+                if parsed_data.msgID in ['GGA']:
+                    logger.debug("🎯 Processing GGA message")
+                    self._process_gga_message(parsed_data)
+                else:
+                    logger.debug(f"ℹ️  Skipping non-GGA message: {parsed_data.msgID}")
+            else:
+                logger.debug("⚠️  NMEA message has no msgID attribute")
                 
         except Exception as e:
-            logger.debug(f"Error processing NMEA: {e}")
+            logger.warning(f"Error processing NMEA: {e}")
+            logger.debug(f"Raw data: {raw_data}")
+            logger.debug(f"Parsed data: {parsed_data}")
     
     def _process_gga_message(self, gga_data):
         """Process GGA message and update position"""
         try:
+            logger.debug(f"🎯 Processing GGA: {gga_data}")
+            
             if hasattr(gga_data, 'lat') and hasattr(gga_data, 'lon'):
                 # Extract position data
                 position_data = {
@@ -813,23 +830,36 @@ class RTKManager:
                 else:
                     position_data["rtk_status"] = "Unknown"
                 
+                logger.info(f"📍 Position update: lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
+                           f"alt={position_data['altitude']:.1f}m, sats={position_data['satellites']}, " +
+                           f"hdop={position_data['hdop']:.1f}, status={position_data['rtk_status']}")
+                
                 # Update status if changed
                 if position_data["rtk_status"] != self.rtk_status:
+                    old_status = self.rtk_status
                     self.rtk_status = position_data["rtk_status"]
-                    logger.info(f"RTK Status: {self.rtk_status}")
+                    logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
                 
                 # Log signal quality warnings
                 self._log_signal_quality_warnings(position_data)
                 
                 # Store current position
-                self.current_position = position_data
+                with self._position_lock:
+                    self.current_position = position_data
                 
                 # Call position callback
                 if self.position_callback:
-                    self.position_callback(position_data)
+                    try:
+                        self.position_callback(position_data)
+                    except Exception as cb_error:
+                        logger.warning(f"Position callback error: {cb_error}")
+            else:
+                logger.warning("⚠️  GGA message missing lat/lon data")
+                logger.debug(f"GGA attributes: {dir(gga_data)}")
                     
         except Exception as e:
-            logger.debug(f"Error processing GGA: {e}")
+            logger.error(f"Error processing GGA: {e}")
+            logger.debug(f"GGA data: {gga_data}")
     
     def _log_signal_quality_warnings(self, position_data):
         """Log warnings about poor signal quality that affects RTK performance"""
