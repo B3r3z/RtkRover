@@ -22,16 +22,19 @@ def test_lc29h_simple():
         nmr = NMEAReader(stream)
         print("✅ NMEAReader created")
         
-        # Wait a bit for GPS to initialize
-        print("⏳ Waiting for GPS data (30 seconds)...")
+        # Wait longer for GPS to get fix
+        print("⏳ Waiting for GPS fix (120 seconds)...")
+        print("💡 GPS needs clear sky view and time for cold start!")
         
         start_time = time.time()
         message_count = 0
         gga_count = 0
         gll_count = 0
         other_count = 0
+        last_quality = None
+        last_satellites = None
         
-        while time.time() - start_time < 30.0:
+        while time.time() - start_time < 120.0:
             try:
                 # Read exactly like Waveshare
                 (raw_data, parsed_data) = nmr.read()
@@ -46,14 +49,28 @@ def test_lc29h_simple():
                         
                         if parsed_data:
                             try:
-                                lat = getattr(parsed_data, 'lat', None)
-                                lon = getattr(parsed_data, 'lon', None) 
-                                quality = getattr(parsed_data, 'quality', None)
-                                numSV = getattr(parsed_data, 'numSV', None)
-                                HDOP = getattr(parsed_data, 'HDOP', None)
+                                lat = getattr(parsed_data, 'lat', 'N/A')
+                                lon = getattr(parsed_data, 'lon', 'N/A') 
+                                quality = getattr(parsed_data, 'quality', 'N/A')
+                                numSV = getattr(parsed_data, 'numSV', 'N/A')
+                                HDOP = getattr(parsed_data, 'HDOP', 'N/A')
                                 
-                                print(f"   Position: {lat:.6f}°N, {lon:.6f}°E")
-                                print(f"   Quality: {quality}, Satellites: {numSV}, HDOP: {HDOP}")
+                                # Track changes in GPS status
+                                if quality != last_quality or numSV != last_satellites:
+                                    last_quality = quality
+                                    last_satellites = numSV
+                                    print(f"   📊 GPS Status Change:")
+                                    print(f"      Quality: {quality} (0=Invalid, 1=GPS, 2=DGPS, 4=RTK Fixed, 5=RTK Float)")
+                                    print(f"      Satellites: {numSV}, HDOP: {HDOP}")
+                                    if lat != 'N/A' and lon != 'N/A':
+                                        print(f"      Position: {lat}°N, {lon}°E")
+                                
+                                # Success condition: GPS fix with coordinates
+                                if quality and int(quality) > 0 and lat != 'N/A' and lon != 'N/A':
+                                    print(f"\n🎉 GPS FIX ACHIEVED!")
+                                    print(f"   Quality: {quality}, Position: {lat}°N, {lon}°E")
+                                    break
+                                    
                             except Exception as e:
                                 print(f"   Parse error: {e}")
                                 
@@ -66,12 +83,15 @@ def test_lc29h_simple():
                         if other_count <= 5:  # Show first 5 other messages
                             print(f"📄 OTHER[{other_count}]: {message_str}")
                         elif other_count == 6:
-                            print(f"📄 ... ({other_count} other NMEA messages)")
+                            print(f"📄 ... (continuing to monitor)")
+                    
+                    # Show progress every 10 seconds
+                    elapsed = time.time() - start_time
+                    if int(elapsed) % 10 == 0 and elapsed > 1:
+                        print(f"⏰ {int(elapsed)}s elapsed - Quality: {last_quality}, Satellites: {last_satellites}")
                             
-                    # If we got GGA with fix, that's success!
-                    if gga_count >= 3:
-                        print(f"\n✅ SUCCESS: Got {gga_count} GGA messages!")
-                        break
+                    # If we got GPS fix, that's success!
+                    # Continue monitoring for actual GPS fix
                         
             except Exception as e:
                 print(f"❌ Read error: {e}")
@@ -84,7 +104,11 @@ def test_lc29h_simple():
         print(f"   Other messages: {other_count}")
         
         if gga_count > 0:
-            print(f"✅ SUCCESS: LC29H is sending NMEA data!")
+            if last_quality and int(last_quality) > 0:
+                print(f"✅ SUCCESS: LC29H has GPS fix (Quality: {last_quality})!")
+            else:
+                print(f"⚠️  PARTIAL: LC29H sending NMEA but no GPS fix yet")
+                print(f"💡 Try moving GPS to location with clear sky view")
             return True
         else:
             print(f"❌ FAILED: No GGA messages received")
