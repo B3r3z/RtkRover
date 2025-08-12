@@ -360,5 +360,5 @@ def _register_routes(app):
 
 def get_rtk_manager():
     """Get global RTK manager instance - deprecated, use app_manager instead"""
-    logger.warning("get_rtk_manager() is deprecated, use app_manager.get_rtk_manager() instead")
+    logger.warning("get_rtk_manager() is  deprecated, use app_manager.get_rtk_manager() instead")
     return app_manager.get_rtk_manager()

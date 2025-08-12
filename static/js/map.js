@@ -153,7 +153,7 @@ class RTKRoverMap {
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 19
+            maxZoom: 25
         }).addTo(this.map);
         
         this.map.on('dragstart zoomstart', () => {
@@ -344,8 +344,8 @@ class RTKRoverMap {
         } else {
             const roverIcon = L.divIcon({
                 html: '🛸',
-                iconSize: [40, 40],
-                iconAnchor: [20, 40],
+                iconSize: [24, 24],
+                iconAnchor: [12, 24],
                 className: 'rover-icon'
             });
             
