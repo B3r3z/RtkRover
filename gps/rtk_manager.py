@@ -885,14 +885,14 @@ class RTKManager:
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 }
                 
-                # Determine RTK status from quality indicator - THIS IS THE KEY!
+                # Determine RTK status from quality indicator
                 if hasattr(gga_data, 'quality'):
                     quality_map = {
                         0: "No Fix",
                         1: "Single",
                         2: "DGPS", 
-                        4: "RTK Fixed",  # 🎯 CENTIMETER ACCURACY!
-                        5: "RTK Float"   # 🎯 DECIMETER ACCURACY!
+                        4: "RTK Fixed",
+                        5: "RTK Float"
                     }
                     rtk_status = quality_map.get(int(gga_data.quality), f"Unknown ({gga_data.quality})")
                     position_data["rtk_status"] = rtk_status
@@ -961,25 +961,14 @@ class RTKManager:
                 
                 # GLL status: A = Active (valid), V = Void (invalid)
                 if hasattr(gll_data, 'status') and gll_data.status == 'A':
-                    # Enhanced RTK status detection based on HDOP and satellite count
+                    # Try to determine better RTK status from HDOP and satellites
                     hdop = position_data.get("hdop", 0.0)
                     satellites = position_data.get("satellites", 0)
                     
-                    # Check for posMode (positioning mode) in GLL message
-                    pos_mode = getattr(gll_data, 'posMode', None)
-                    
-                    if hdop > 0 and hdop <= 0.5 and satellites >= 8:
-                        # Excellent precision suggests RTK Fixed
-                        if pos_mode == 'R' or (hdop <= 0.3):
-                            position_data["rtk_status"] = "RTK Fixed"
-                        else:
-                            position_data["rtk_status"] = "RTK Float"
-                    elif hdop > 0 and hdop <= 1.0 and satellites >= 6:
-                        position_data["rtk_status"] = "RTK Float"  # Very good precision
-                    elif hdop > 0 and hdop <= 2.0 and satellites >= 5:
-                        position_data["rtk_status"] = "DGPS"  # Good precision (current case)
-                    elif satellites >= 4:
-                        position_data["rtk_status"] = "Single"  # Basic GPS fix
+                    if hdop > 0 and hdop < 1.0 and satellites >= 12:
+                        position_data["rtk_status"] = "RTK Float"  # High precision suggests RTK
+                    elif hdop > 0 and hdop < 2.0 and satellites >= 8:
+                        position_data["rtk_status"] = "DGPS"  # Good precision
                     else:
                         position_data["rtk_status"] = "No Fix"
                         
