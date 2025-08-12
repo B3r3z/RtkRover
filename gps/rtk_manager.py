@@ -818,13 +818,16 @@ class RTKManager:
             
             # Look for GGA sentences (like Waveshare searches for GNGGA)
             if hasattr(parsed_data, 'msgID'):
-                logger.info(f"📍 NMEA msgID: {parsed_data.msgID}")
+                logger.debug(f"📍 NMEA msgID: {parsed_data.msgID}")
                 
                 if parsed_data.msgID in ['GGA']:
                     logger.info("🎯 Processing GGA message")
                     self._process_gga_message(parsed_data)
+                elif parsed_data.msgID in ['GLL']:
+                    logger.info("🎯 Processing GLL message (position backup)")
+                    self._process_gll_message(parsed_data)
                 else:
-                    logger.info(f"ℹ️  Skipping non-GGA message: {parsed_data.msgID}")
+                    logger.debug(f"ℹ️  Skipping non-position message: {parsed_data.msgID}")
             else:
                 logger.info("⚠️  NMEA message has no msgID attribute")
                 
@@ -892,6 +895,55 @@ class RTKManager:
         except Exception as e:
             logger.error(f"Error processing GGA: {e}")
             logger.debug(f"GGA data: {gga_data}")
+    
+    def _process_gll_message(self, gll_data):
+        """Process GLL message and update position (backup for GGA)"""
+        try:
+            logger.info(f"🎯 Processing GLL: {gll_data}")
+            
+            if hasattr(gll_data, 'lat') and hasattr(gll_data, 'lon'):
+                # Extract position data from GLL
+                position_data = {
+                    "lat": float(gll_data.lat) if gll_data.lat else 0.0,
+                    "lon": float(gll_data.lon) if gll_data.lon else 0.0,
+                    "altitude": 0.0,  # GLL doesn't contain altitude
+                    "satellites": 0,  # GLL doesn't contain satellite count
+                    "hdop": 0.0,     # GLL doesn't contain HDOP
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                }
+                
+                # GLL status: A = Active (valid), V = Void (invalid)
+                if hasattr(gll_data, 'status') and gll_data.status == 'A':
+                    position_data["rtk_status"] = "Single"  # GLL typically indicates basic GPS fix
+                else:
+                    position_data["rtk_status"] = "No Fix"
+                
+                logger.info(f"📍 Position update (GLL): lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
+                           f"status={position_data['rtk_status']}")
+                
+                # Update status if changed
+                if position_data["rtk_status"] != self.rtk_status:
+                    old_status = self.rtk_status
+                    self.rtk_status = position_data["rtk_status"]
+                    logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
+                
+                # Store current position
+                with self._position_lock:
+                    self.current_position = position_data
+                
+                # Call position callback
+                if self.position_callback:
+                    try:
+                        self.position_callback(position_data)
+                    except Exception as cb_error:
+                        logger.warning(f"Position callback error: {cb_error}")
+            else:
+                logger.warning("⚠️  GLL message missing lat/lon data")
+                logger.debug(f"GLL attributes: {dir(gll_data)}")
+                    
+        except Exception as e:
+            logger.error(f"Error processing GLL: {e}")
+            logger.debug(f"GLL data: {gll_data}")
     
     def _log_signal_quality_warnings(self, position_data):
         """Log warnings about poor signal quality that affects RTK performance"""
