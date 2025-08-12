@@ -761,6 +761,7 @@ class RTKManager:
                             continue
                         
                         # Process valid data
+                        logger.info(f"🎯 About to process NMEA message: {len(raw_data)} bytes")
                         self._process_nmea_message(raw_data, parsed_data)
                         consecutive_errors = 0  # Reset on success
                         
@@ -813,19 +814,19 @@ class RTKManager:
             # Debug: Log all incoming NMEA messages
             if raw_data:
                 raw_str = raw_data.decode('ascii', errors='ignore').strip()
-                logger.debug(f"📡 NMEA received: {raw_str}")
+                logger.info(f"📡 NMEA received: {raw_str}")
             
             # Look for GGA sentences (like Waveshare searches for GNGGA)
             if hasattr(parsed_data, 'msgID'):
-                logger.debug(f"📍 NMEA msgID: {parsed_data.msgID}")
+                logger.info(f"📍 NMEA msgID: {parsed_data.msgID}")
                 
                 if parsed_data.msgID in ['GGA']:
-                    logger.debug("🎯 Processing GGA message")
+                    logger.info("🎯 Processing GGA message")
                     self._process_gga_message(parsed_data)
                 else:
-                    logger.debug(f"ℹ️  Skipping non-GGA message: {parsed_data.msgID}")
+                    logger.info(f"ℹ️  Skipping non-GGA message: {parsed_data.msgID}")
             else:
-                logger.debug("⚠️  NMEA message has no msgID attribute")
+                logger.info("⚠️  NMEA message has no msgID attribute")
                 
         except Exception as e:
             logger.warning(f"Error processing NMEA: {e}")
