@@ -390,7 +390,8 @@ class RTKManager:
     def _test_gps_communication(self, serial_connection):
         """Test if GPS communication works at given baudrate"""
         try:
-            serial_connection.reset_input_buffer()
+            # Don't reset buffer - might destroy valid NMEA data
+            # serial_connection.reset_input_buffer()
             
             start_time = time.time()
             while time.time() - start_time < 3.0:
@@ -717,14 +718,14 @@ class RTKManager:
                         logger.warning(f"GPS read error: {read_error}")
                         consecutive_errors += 1
                     
-                    # Clear corrupted data from buffer
-                    if self.gps_serial and self.gps_serial.is_open:
-                        try:
-                            # Try to flush input buffer to clear corruption
-                            self.gps_serial.reset_input_buffer()
-                            time.sleep(0.1)  # Brief pause to let things settle
-                        except:
-                            pass
+                    # Don't clear buffer - might destroy valid NMEA data
+                    # if self.gps_serial and self.gps_serial.is_open:
+                    #     try:
+                    #         # Try to flush input buffer to clear corruption
+                    #         self.gps_serial.reset_input_buffer()
+                    #         time.sleep(0.1)  # Brief pause to let things settle
+                    #     except:
+                    #         pass
                     
                     continue
                 
@@ -743,8 +744,8 @@ class RTKManager:
                         if b'\xd3' in raw_data:  # RTCM preamble in NMEA data
                             corruption_count += 1
                             logger.debug("RTCM contamination detected in NMEA stream")
-                            # Clear buffer and continue
-                            self.gps_serial.reset_input_buffer()
+                            # Don't clear buffer - might destroy valid NMEA data
+                            # self.gps_serial.reset_input_buffer()
                             time.sleep(0.01)
                             continue
                         
@@ -1045,47 +1046,54 @@ class RTKManager:
         """Try to enable GGA messages via GPS configuration commands"""
         try:
             if self.gps_serial and self.gps_serial.is_open:
-                logger.info("🔧 Attempting to enable GGA messages...")
+                logger.info("🔧 Skipping GPS configuration - LC29H already sends NMEA data")
+                # GPS already works perfectly with standard NMEA output
+                # No need to send configuration commands that might interfere
+                return
                 
-                # LC29H specific PAIR commands for enabling NMEA messages
-                lc29h_commands = [
-                    # Enable all standard NMEA messages including GGA
-                    b"$PAIR062,1,1*38\r\n",  # Enable GGA
-                    b"$PAIR062,2,1*3B\r\n",  # Enable GLL  
-                    b"$PAIR062,3,1*3A\r\n",  # Enable GSA
-                    b"$PAIR062,4,1*3D\r\n",  # Enable GSV
-                    b"$PAIR062,5,1*3C\r\n",  # Enable RMC
-                    b"$PAIR062,6,1*3F\r\n",  # Enable VTG
-                    
-                    # Alternative LC29H NMEA output configuration
-                    b"$PAIR001,0,0,1,1,1,1,0,0*3C\r\n",  # Configure NMEA output: GGA,GLL,GSA,GSV,RMC,VTG
-                    
-                    # Force NMEA mode and output rate
-                    b"$PAIR000,1*3C\r\n",   # Set NMEA mode
-                    b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
-                ]
+                # OLD CODE - disabled because GPS already works
+                # logger.info("🔧 Attempting to enable GGA messages...")
                 
-                # Also try common NMEA configuration commands
-                generic_commands = [
-                    b"$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA,GLL,GSA,GSV,RMC,VTG
-                    b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable standard NMEA
-                ]
-                
-                all_commands = lc29h_commands + generic_commands
-                
-                for cmd in all_commands:
-                    try:
-                        logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
-                        self.gps_serial.write(cmd)
-                        self.gps_serial.flush()
-                        time.sleep(0.2)  # Longer pause for LC29H to process
-                    except Exception as cmd_error:
-                        logger.debug(f"GPS config command failed: {cmd_error}")
-                        continue
-                
-                # Wait for GPS to apply changes
-                time.sleep(2.0)
-                logger.info("🔧 GGA enable commands sent - monitoring for changes...")
+                # # LC29H specific PAIR commands for enabling NMEA messages
+                # # DISABLED - GPS already works perfectly with standard NMEA output
+                # lc29h_commands = [
+                #     # Enable all standard NMEA messages including GGA
+                #     b"$PAIR062,1,1*38\r\n",  # Enable GGA
+                #     b"$PAIR062,2,1*3B\r\n",  # Enable GLL  
+                #     b"$PAIR062,3,1*3A\r\n",  # Enable GSA
+                #     b"$PAIR062,4,1*3D\r\n",  # Enable GSV
+                #     b"$PAIR062,5,1*3C\r\n",  # Enable RMC
+                #     b"$PAIR062,6,1*3F\r\n",  # Enable VTG
+                #     
+                #     # Alternative LC29H NMEA output configuration
+                #     b"$PAIR001,0,0,1,1,1,1,0,0*3C\r\n",  # Configure NMEA output: GGA,GLL,GSA,GSV,RMC,VTG
+                #     
+                #     # Force NMEA mode and output rate
+                #     b"$PAIR000,1*3C\r\n",   # Set NMEA mode
+                #     b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
+                # ]
+                # 
+                # # Also try common NMEA configuration commands
+                # generic_commands = [
+                #     b"$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA,GLL,GSA,GSV,RMC,VTG
+                #     b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable standard NMEA
+                # ]
+                # 
+                # all_commands = lc29h_commands + generic_commands
+                # 
+                # for cmd in all_commands:
+                #     try:
+                #         logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
+                #         self.gps_serial.write(cmd)
+                #         self.gps_serial.flush()
+                #         time.sleep(0.2)  # Longer pause for LC29H to process
+                #     except Exception as cmd_error:
+                #         logger.debug(f"GPS config command failed: {cmd_error}")
+                #         continue
+                # 
+                # # Wait for GPS to apply changes
+                # time.sleep(2.0)
+                # logger.info("🔧 GGA enable commands sent - monitoring for changes...")
                 
         except Exception as e:
             logger.debug(f"Error enabling GGA: {e}")
@@ -1139,15 +1147,15 @@ class RTKManager:
         if current_time - self._last_hdop_recovery > 60:
             logger.warning(f"Poor HDOP: {hdop:.1f} (>5.0) - attempting automated recovery...")
             
-            # Strategy 1: Clear GPS input buffer to remove corrupted data
-            if self.gps_serial and self.gps_serial.is_open:
-                try:
-                    bytes_in_buffer = self.gps_serial.in_waiting
-                    if bytes_in_buffer > 0:
-                        self.gps_serial.reset_input_buffer()
-                        logger.info(f"🔧 Cleared {bytes_in_buffer} bytes from GPS buffer")
-                except Exception as e:
-                    logger.debug(f"Failed to clear GPS buffer: {e}")
+            # Strategy 1: Don't clear GPS buffer - might destroy valid NMEA data
+            # if self.gps_serial and self.gps_serial.is_open:
+            #     try:
+            #         bytes_in_buffer = self.gps_serial.in_waiting
+            #         if bytes_in_buffer > 0:
+            #             self.gps_serial.reset_input_buffer()
+            #             logger.info(f"🔧 Cleared {bytes_in_buffer} bytes from GPS buffer")
+            #     except Exception as e:
+            #         logger.debug(f"Failed to clear GPS buffer: {e}")
             
             # Strategy 2: Reset RTCM parser buffer
             if hasattr(self, 'rtcm_parser') and self.rtcm_parser:
