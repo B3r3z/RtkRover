@@ -274,9 +274,11 @@ class RTKManager:
                     # Thread-safe serial write
                     with self._state_lock:
                         if self.gps_serial and self.gps_serial.is_open:
-                            # Clear any pending input data before writing
-                            if self.gps_serial.in_waiting > 0:
-                                self.gps_serial.reset_input_buffer()
+                            # Check for data before clearing - don't lose NMEA data
+                            bytes_waiting = self.gps_serial.in_waiting
+                            if bytes_waiting > 0:
+                                logger.debug(f"⚠️  {bytes_waiting} bytes in buffer before RTCM write - preserving NMEA data")
+                                # Don't clear buffer if data is available - it might be NMEA
                             
                             # Write RTCM data
                             bytes_written = self.gps_serial.write(rtcm_data)
@@ -651,25 +653,54 @@ class RTKManager:
         max_consecutive_errors = 10
         corruption_count = 0
         last_corruption_log = 0
+        loop_iterations = 0
+        last_data_check = 0
         
         while self.running and self.nmea_reader:
             try:
+                loop_iterations += 1
+                
+                # Debug: Log periodic status
+                if loop_iterations % 100 == 0:  # Every 100 iterations
+                    logger.info(f"🔄 NMEA loop status: iterations={loop_iterations}, in_waiting={self.gps_serial.in_waiting if self.gps_serial else 'NO_SERIAL'}")
+                
                 # Check for serial port availability and data
-                if not (self.gps_serial and self.gps_serial.is_open and self.gps_serial.in_waiting > 0):
-                    time.sleep(0.1)
-                    # If we lose connection, check for too many errors
-                    if not (self.gps_serial and self.gps_serial.is_open):
-                        consecutive_errors += 1
+                if not (self.gps_serial and self.gps_serial.is_open):
+                    logger.warning("❌ GPS serial connection lost")
+                    consecutive_errors += 1
                     if consecutive_errors >= max_consecutive_errors:
-                         logger.error("Lost GPS serial connection. Stopping NMEA loop.")
-                         break
+                        logger.error("Lost GPS serial connection. Stopping NMEA loop.")
+                        break
+                    time.sleep(0.1)
+                    continue
+                
+                # Check for data availability
+                bytes_waiting = self.gps_serial.in_waiting
+                current_time = time.time()
+                
+                if bytes_waiting > 0:
+                    logger.info(f"📥 GPS data available: {bytes_waiting} bytes")
+                    last_data_check = current_time
+                else:
+                    # Log if no data for too long
+                    if current_time - last_data_check > 10.0:  # 10 seconds without data
+                        logger.warning(f"⚠️  No GPS data for {current_time - last_data_check:.1f}s")
+                        last_data_check = current_time
+                    
+                    time.sleep(0.1)
                     continue
 
                 # Read and process data with corruption detection and synchronization
                 try:
+                    logger.debug(f"🔄 Reading NMEA data ({bytes_waiting} bytes available)")
+                    
                     # Synchronized NMEA reading to prevent interference with RTCM writing
                     with self._state_lock:  # Synchronize with RTCM writing
                         raw_data, parsed_data = self.nmea_reader.read()
+                    
+                    if raw_data:
+                        logger.info(f"📡 NMEA read successful: {len(raw_data)} bytes")
+                    
                 except Exception as read_error:
                     # Handle corruption at read level
                     corruption_count += 1
