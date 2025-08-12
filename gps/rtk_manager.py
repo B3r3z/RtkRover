@@ -675,9 +675,24 @@ class RTKManager:
                     time.sleep(0.1)
                     continue
                 
-                # Check for data availability
+                # Check for data availability with buffer management
                 bytes_waiting = self.gps_serial.in_waiting
                 current_time = time.time()
+                
+                # Buffer overflow protection - clear if too full
+                if bytes_waiting > 3000:  # Nearly full buffer
+                    logger.warning(f"📊 GPS buffer near capacity: {bytes_waiting} bytes - optimizing...")
+                    # Read and process multiple messages quickly to clear buffer
+                    for _ in range(20):  # Process up to 20 messages quickly
+                        if self.gps_serial.in_waiting < 100:
+                            break
+                        try:
+                            raw_data, parsed_data = self.nmea_reader.read()
+                            if raw_data:
+                                self._process_nmea_message(raw_data, parsed_data)
+                        except Exception:
+                            break
+                    logger.info(f"📊 Buffer optimized: {self.gps_serial.in_waiting} bytes remaining")
                 
                 if bytes_waiting > 0:
                     logger.info(f"📥 GPS data available: {bytes_waiting} bytes")
@@ -855,9 +870,9 @@ class RTKManager:
             logger.debug(f"Parsed data: {parsed_data}")
     
     def _process_gga_message(self, gga_data):
-        """Process GGA message and update position"""
+        """Process GGA message and update position with RTK status detection"""
         try:
-            logger.debug(f"🎯 Processing GGA: {gga_data}")
+            logger.info(f"🎯 Processing GGA: {gga_data}")
             
             if hasattr(gga_data, 'lat') and hasattr(gga_data, 'lon'):
                 # Extract position data
@@ -870,20 +885,30 @@ class RTKManager:
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 }
                 
-                # Determine RTK status from quality indicator
+                # Determine RTK status from quality indicator - THIS IS THE KEY!
                 if hasattr(gga_data, 'quality'):
                     quality_map = {
                         0: "No Fix",
                         1: "Single",
                         2: "DGPS", 
-                        4: "RTK Fixed",
-                        5: "RTK Float"
+                        4: "RTK Fixed",  # 🎯 CENTIMETER ACCURACY!
+                        5: "RTK Float"   # 🎯 DECIMETER ACCURACY!
                     }
-                    position_data["rtk_status"] = quality_map.get(int(gga_data.quality), f"Unknown ({gga_data.quality})")
+                    rtk_status = quality_map.get(int(gga_data.quality), f"Unknown ({gga_data.quality})")
+                    position_data["rtk_status"] = rtk_status
+                    
+                    # Special logging for RTK achievements
+                    if int(gga_data.quality) == 4:
+                        logger.info(f"🎉 RTK FIXED ACHIEVED! Quality=4, HDOP={position_data['hdop']:.1f}")
+                    elif int(gga_data.quality) == 5:
+                        logger.info(f"🎯 RTK FLOAT ACTIVE! Quality=5, HDOP={position_data['hdop']:.1f}")
+                    
+                    logger.info(f"📊 GGA Quality Indicator: {gga_data.quality} = {rtk_status}")
                 else:
                     position_data["rtk_status"] = "Unknown"
+                    logger.warning("⚠️ GGA message missing quality field!")
                 
-                logger.info(f"📍 Position update: lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
+                logger.info(f"📍 Position update (GGA): lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
                            f"alt={position_data['altitude']:.1f}m, sats={position_data['satellites']}, " +
                            f"hdop={position_data['hdop']:.1f}, status={position_data['rtk_status']}")
                 
@@ -892,6 +917,10 @@ class RTKManager:
                     old_status = self.rtk_status
                     self.rtk_status = position_data["rtk_status"]
                     logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
+                    
+                    # Special celebration for RTK Fixed
+                    if self.rtk_status == "RTK Fixed":
+                        logger.info("🎉🎉🎉 RTK FIXED STATUS ACHIEVED - CENTIMETER ACCURACY! 🎉🎉🎉")
                 
                 # Log signal quality warnings
                 self._log_signal_quality_warnings(position_data)
@@ -932,16 +961,31 @@ class RTKManager:
                 
                 # GLL status: A = Active (valid), V = Void (invalid)
                 if hasattr(gll_data, 'status') and gll_data.status == 'A':
-                    # Try to determine better RTK status from HDOP and satellites
+                    # Enhanced RTK status detection based on HDOP and satellite count
                     hdop = position_data.get("hdop", 0.0)
                     satellites = position_data.get("satellites", 0)
                     
-                    if hdop > 0 and hdop < 1.0 and satellites >= 12:
-                        position_data["rtk_status"] = "RTK Float"  # High precision suggests RTK
-                    elif hdop > 0 and hdop < 2.0 and satellites >= 8:
-                        position_data["rtk_status"] = "DGPS"  # Good precision
-                    else:
+                    # Check for posMode (positioning mode) in GLL message
+                    pos_mode = getattr(gll_data, 'posMode', None)
+                    
+                    if hdop > 0 and hdop <= 0.5 and satellites >= 8:
+                        # Excellent precision suggests RTK Fixed
+                        if pos_mode == 'R' or (hdop <= 0.3):
+                            position_data["rtk_status"] = "RTK Fixed"
+                        else:
+                            position_data["rtk_status"] = "RTK Float"
+                    elif hdop > 0 and hdop <= 1.0 and satellites >= 6:
+                        position_data["rtk_status"] = "RTK Float"  # Very good precision
+                    elif hdop > 0 and hdop <= 2.0 and satellites >= 5:
+                        position_data["rtk_status"] = "DGPS"  # Good precision (current case)
+                    elif satellites >= 4:
                         position_data["rtk_status"] = "Single"  # Basic GPS fix
+                    else:
+                        position_data["rtk_status"] = "No Fix"
+                        
+                    # Log enhanced RTK detection
+                    if hdop <= 0.5:
+                        logger.info(f"🎯 EXCELLENT precision detected: HDOP={hdop:.2f}, Sats={satellites}, Mode={pos_mode}")
                 else:
                     position_data["rtk_status"] = "No Fix"
                 
@@ -1046,13 +1090,48 @@ class RTKManager:
         """Try to enable GGA messages via GPS configuration commands"""
         try:
             if self.gps_serial and self.gps_serial.is_open:
-                logger.info("🔧 Skipping GPS configuration - LC29H already sends NMEA data")
-                # GPS already works perfectly with standard NMEA output
-                # No need to send configuration commands that might interfere
-                return
+                logger.info("🔧 Attempting to enable GGA messages for RTK Fixed status detection...")
+                logger.info("💡 GGA Quality Indicator field is essential for RTK Fixed (4) vs Float (5) detection")
                 
-                # OLD CODE - disabled because GPS already works
-                # logger.info("🔧 Attempting to enable GGA messages...")
+                # LC29H PQTM commands (Quectel Proprietary Message) for enabling GGA
+                # These are the correct commands for LC29H GPS module!
+                pqtm_commands = [
+                    # Enable GGA only, disable others for cleaner output  
+                    b"$PQTMGNSSMSG,1,0,0,0,0,0*28\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
+                    
+                    # Alternative: Enable GGA + essential messages
+                    b"$PQTMGNSSMSG,1,1,1,1,1,0*2F\r\n",  # GGA,GLL,GSA,GSV,RMC=1Hz, VTG=0Hz
+                    
+                    # Set update rate to 1Hz
+                    b"$PQTMGNSSRATE,1000*6B\r\n",  # 1000ms = 1Hz update rate
+                ]
+                
+                # LC29H PAIR commands as backup (older method)
+                pair_commands = [
+                    b"$PAIR000,1*3C\r\n",   # Set NMEA mode
+                    b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
+                    b"$PAIR062,1,1*38\r\n",  # Enable GGA - CRITICAL for RTK status
+                    b"$PAIR062,2,1*3B\r\n",  # Enable GLL (backup position) 
+                    b"$PAIR062,3,1*3A\r\n",  # Enable GSA (HDOP, satellites)
+                ]
+                
+                # Try PQTM commands first (correct for LC29H), then PAIR as backup
+                all_commands = pqtm_commands + pair_commands
+                
+                for cmd in all_commands:
+                    try:
+                        logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
+                        self.gps_serial.write(cmd)
+                        self.gps_serial.flush()
+                        time.sleep(0.3)  # Give LC29H time to process each command
+                    except Exception as cmd_error:
+                        logger.debug(f"GPS config command failed: {cmd_error}")
+                        continue
+                
+                # Wait for GPS to apply changes
+                time.sleep(3.0)
+                logger.info("🔧 GGA enable commands sent - monitoring for GGA messages with RTK Quality Indicator...")
+                logger.info("🎯 Looking for GGA field 6: 4=RTK Fixed, 5=RTK Float, 2=DGPS, 1=GPS")
                 
                 # # LC29H specific PAIR commands for enabling NMEA messages
                 # # DISABLED - GPS already works perfectly with standard NMEA output
