@@ -24,6 +24,8 @@ class RTKSystem(RTKSystemInterface):
         self._threads: List[threading.Thread] = []
         self._stats = RTKStats(0, 0, 0.0, 0.0)
         self._start_time = 0
+        self._position_count = 0
+        self._last_position_log = 0
     
     def start(self) -> bool:
         if self.running:
@@ -62,6 +64,15 @@ class RTKSystem(RTKSystemInterface):
     def _update_position(self, position: Position):
         with self._position_lock:
             self.current_position = position
+            self._position_count += 1
+            
+        # Log position update every 10 seconds
+        current_time = time.time()
+        if current_time - self._last_position_log >= 10.0:
+            logger.info(f"🎯 Position updates: {self._position_count} total, "
+                       f"Current: {position.rtk_status.value}, "
+                       f"Sats: {position.satellites}, HDOP: {position.hdop:.1f}")
+            self._last_position_log = current_time
             
         for observer in self.observers:
             try:
