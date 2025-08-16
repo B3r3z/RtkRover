@@ -1082,7 +1082,7 @@ class RTKManager:
                 # These are the correct commands for LC29H GPS module!
                 pqtm_commands = [
                     # Enable GGA and VTG
-                    b"$PQTMGNSSMSG,1,0,0,0,0,1*29\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
+                    b"$PQTMGNSSMSG,1,1,0,0,0,1*29\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
                 ]
           
                 all_commands = pqtm_commands 
