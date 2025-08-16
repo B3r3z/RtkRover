@@ -56,15 +56,10 @@ class RTKApplicationManager:
                 logger.info("Initializing RTK Manager...")
                 self.rtk_manager = RTKManager()
                 
-                if self.rtk_manager.initialize():
-                    logger.info("RTK Manager initialized successfully")
-                    
-                    if self.rtk_manager.start():
-                        logger.info("RTK system started successfully")
-                    else:
-                        logger.error("Failed to start RTK system - continuing in degraded mode")
+                if self.rtk_manager.start():
+                    logger.info("RTK system started successfully")
                 else:
-                    logger.error("Failed to initialize RTK Manager - system may run in demo mode")
+                    logger.error("Failed to start RTK system - continuing in degraded mode")
                     
             except Exception as e:
                 logger.error(f"Critical error in RTK worker thread: {e}", exc_info=True)
