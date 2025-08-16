@@ -918,10 +918,6 @@ class RTKManager:
                     self.rtk_status = position_data["rtk_status"]
                     logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
                     
-                    # Special celebration for RTK Fixed
-                    if self.rtk_status == "RTK Fixed":
-                        logger.info("🎉🎉🎉 RTK FIXED STATUS ACHIEVED - CENTIMETER ACCURACY! 🎉🎉🎉")
-                
                 # Log signal quality warnings
                 self._log_signal_quality_warnings(position_data)
                 
@@ -1082,31 +1078,15 @@ class RTKManager:
                 logger.info("🔧 Attempting to enable GGA messages for RTK Fixed status detection...")
                 logger.info("💡 GGA Quality Indicator field is essential for RTK Fixed (4) vs Float (5) detection")
                 
-                # LC29H PQTM commands (Quectel Proprietary Message) for enabling GGA
+                # LC29H PQTM commands (Quectel Proprietary Message)
                 # These are the correct commands for LC29H GPS module!
                 pqtm_commands = [
-                    # Enable GGA only, disable others for cleaner output  
-                    b"$PQTMGNSSMSG,1,0,0,0,0,0*28\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
-                    
-                    # Alternative: Enable GGA + essential messages
-                    b"$PQTMGNSSMSG,1,1,1,1,1,0*2F\r\n",  # GGA,GLL,GSA,GSV,RMC=1Hz, VTG=0Hz
-                    
-                    # Set update rate to 1Hz
-                    b"$PQTMGNSSRATE,1000*6B\r\n",  # 1000ms = 1Hz update rate
+                    # Enable GGA and VTG
+                    b"$PQTMGNSSMSG,1,0,0,0,0,1*29\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
                 ]
-                
-                # LC29H PAIR commands as backup (older method)
-                pair_commands = [
-                    b"$PAIR000,1*3C\r\n",   # Set NMEA mode
-                    b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
-                    b"$PAIR062,1,1*38\r\n",  # Enable GGA - CRITICAL for RTK status
-                    b"$PAIR062,2,1*3B\r\n",  # Enable GLL (backup position) 
-                    b"$PAIR062,3,1*3A\r\n",  # Enable GSA (HDOP, satellites)
-                ]
-                
-                # Try PQTM commands first (correct for LC29H), then PAIR as backup
-                all_commands = pqtm_commands + pair_commands
-                
+          
+                all_commands = pqtm_commands 
+
                 for cmd in all_commands:
                     try:
                         logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
@@ -1117,51 +1097,9 @@ class RTKManager:
                         logger.debug(f"GPS config command failed: {cmd_error}")
                         continue
                 
-                # Wait for GPS to apply changes
                 time.sleep(3.0)
                 logger.info("🔧 GGA enable commands sent - monitoring for GGA messages with RTK Quality Indicator...")
                 logger.info("🎯 Looking for GGA field 6: 4=RTK Fixed, 5=RTK Float, 2=DGPS, 1=GPS")
-                
-                # # LC29H specific PAIR commands for enabling NMEA messages
-                # # DISABLED - GPS already works perfectly with standard NMEA output
-                # lc29h_commands = [
-                #     # Enable all standard NMEA messages including GGA
-                #     b"$PAIR062,1,1*38\r\n",  # Enable GGA
-                #     b"$PAIR062,2,1*3B\r\n",  # Enable GLL  
-                #     b"$PAIR062,3,1*3A\r\n",  # Enable GSA
-                #     b"$PAIR062,4,1*3D\r\n",  # Enable GSV
-                #     b"$PAIR062,5,1*3C\r\n",  # Enable RMC
-                #     b"$PAIR062,6,1*3F\r\n",  # Enable VTG
-                #     
-                #     # Alternative LC29H NMEA output configuration
-                #     b"$PAIR001,0,0,1,1,1,1,0,0*3C\r\n",  # Configure NMEA output: GGA,GLL,GSA,GSV,RMC,VTG
-                #     
-                #     # Force NMEA mode and output rate
-                #     b"$PAIR000,1*3C\r\n",   # Set NMEA mode
-                #     b"$PAIR010,1000*17\r\n", # Set 1Hz output rate
-                # ]
-                # 
-                # # Also try common NMEA configuration commands
-                # generic_commands = [
-                #     b"$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n",  # MTK: Enable GGA,GLL,GSA,GSV,RMC,VTG
-                #     b"$PCAS03,1,1,1,1,1,1,0,0,0,0,,,0,0*02\r\n",  # CASIC: Enable standard NMEA
-                # ]
-                # 
-                # all_commands = lc29h_commands + generic_commands
-                # 
-                # for cmd in all_commands:
-                #     try:
-                #         logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
-                #         self.gps_serial.write(cmd)
-                #         self.gps_serial.flush()
-                #         time.sleep(0.2)  # Longer pause for LC29H to process
-                #     except Exception as cmd_error:
-                #         logger.debug(f"GPS config command failed: {cmd_error}")
-                #         continue
-                # 
-                # # Wait for GPS to apply changes
-                # time.sleep(2.0)
-                # logger.info("🔧 GGA enable commands sent - monitoring for changes...")
                 
         except Exception as e:
             logger.debug(f"Error enabling GGA: {e}")
