@@ -1,6 +1,7 @@
 import serial
 import time
 import logging
+import struct
 from typing import Optional
 from pynmeagps import NMEAReader, NMEAMessage
 from ..core.interfaces import GPS, Position, RTKStatus
@@ -94,7 +95,19 @@ class LC29HGPS(GPS):
             return None
             
         msg_type = nmea_msg.msgID
-        logger.debug(f"📡 Processing NMEA message: {msg_type}")
+        
+        # Log all attributes of received NMEA message for debugging
+        msg_attrs = {}
+        for attr in dir(nmea_msg):
+            if not attr.startswith('_') and hasattr(nmea_msg, attr):
+                try:
+                    value = getattr(nmea_msg, attr)
+                    if not callable(value):
+                        msg_attrs[attr] = value
+                except:
+                    pass
+        
+        logger.info(f"📡 NMEA {msg_type}: {msg_attrs}")
         
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
@@ -103,9 +116,9 @@ class LC29HGPS(GPS):
             logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
             return self._parse_gll(nmea_msg)
         elif msg_type in ['GSA', 'GSV', 'RMC', 'VTG']:
-            logger.debug(f"📡 Ignoring {msg_type} message (not used for positioning)")
+            logger.debug(f"📡 Received {msg_type} message: {msg_attrs}")
         else:
-            logger.debug(f"📡 Unknown NMEA message type: {msg_type}")
+            logger.info(f"📡 Unknown NMEA message type {msg_type}: {msg_attrs}")
         return None
     
     def _parse_gga(self, gga: NMEAMessage) -> Optional[Position]:
@@ -115,6 +128,31 @@ class LC29HGPS(GPS):
         GGA Format: $GNGGA,time,lat,lat_dir,lon,lon_dir,quality,numSV,HDOP,alt,alt_units,geoid_height,geoid_units,dgps_time,dgps_id*checksum
         """
         try:
+            # Log ALL GGA attributes for detailed debugging
+            gga_attrs = {}
+            for attr in dir(gga):
+                if not attr.startswith('_') and hasattr(gga, attr):
+                    try:
+                        value = getattr(gga, attr)
+                        if not callable(value):
+                            gga_attrs[attr] = value
+                    except:
+                        pass
+            
+            logger.info(f"🔍 GGA DETAILED: {gga_attrs}")
+            
+            # Check specific important fields
+            if hasattr(gga, 'quality'):
+                logger.info(f"🔍 GGA Quality field: '{gga.quality}' (type: {type(gga.quality)})")
+            if hasattr(gga, 'numSV'):
+                logger.info(f"🔍 GGA NumSV field: '{gga.numSV}' (type: {type(gga.numSV)})")
+            if hasattr(gga, 'HDOP'):
+                logger.info(f"🔍 GGA HDOP field: '{gga.HDOP}' (type: {type(gga.HDOP)})")
+            if hasattr(gga, 'diffAge'):
+                logger.info(f"🔍 GGA DiffAge field: '{gga.diffAge}' (type: {type(gga.diffAge)})")
+            if hasattr(gga, 'diffStation'):
+                logger.info(f"🔍 GGA DiffStation field: '{gga.diffStation}' (type: {type(gga.diffStation)})")
+            
             # Basic structure validation
             if not hasattr(gga, 'lat') or not hasattr(gga, 'lon'):
                 logger.warning("📡 GGA message missing lat/lon attributes")
@@ -232,6 +270,19 @@ class LC29HGPS(GPS):
             return None
     
     def _parse_gll(self, gll: NMEAMessage) -> Optional[Position]:
+        # Log ALL GLL attributes for detailed debugging
+        gll_attrs = {}
+        for attr in dir(gll):
+            if not attr.startswith('_') and hasattr(gll, attr):
+                try:
+                    value = getattr(gll, attr)
+                    if not callable(value):
+                        gll_attrs[attr] = value
+                except:
+                    pass
+        
+        logger.info(f"🔍 GLL DETAILED: {gll_attrs}")
+        
         if not (hasattr(gll, 'lat') and hasattr(gll, 'lon')):
             logger.warning("📡 GLL message missing lat/lon data")
             return None
@@ -257,8 +308,31 @@ class LC29HGPS(GPS):
         if self.serial_conn:
             try:
                 bytes_written = len(data)
+                
+                # Log first few bytes of RTCM data for debugging
+                hex_preview = data[:16].hex() if len(data) >= 16 else data.hex()
+                logger.info(f"📡 RTCM: Sending {bytes_written} bytes to GPS: {hex_preview}...")
+                
+                # Check if this looks like valid RTCM data (should start with 0xD3)
+                if len(data) > 0:
+                    if data[0] == 0xD3:
+                        logger.info(f"✅ RTCM: Valid RTCM preamble detected (0xD3)")
+                        
+                        # Try to extract message type for logging
+                        if len(data) >= 6:
+                            try:
+                                header = struct.unpack('>I', b'\x00' + data[0:3])[0]
+                                length = header & 0x3FF
+                                if len(data) >= 3 + 2:  # Header + at least 2 bytes for message type
+                                    msg_type = struct.unpack('>H', data[3:5])[0] >> 4
+                                    logger.info(f"🔍 RTCM: Message type {msg_type}, length {length}")
+                            except:
+                                logger.debug("Could not extract RTCM message details")
+                    else:
+                        logger.warning(f"⚠️ RTCM: Invalid preamble 0x{data[0]:02X} (expected 0xD3)")
+                
                 self.serial_conn.write(data)
-                logger.debug(f"📡 RTCM: Sent {bytes_written} bytes to GPS")
+                logger.debug(f"✅ RTCM: Successfully sent {bytes_written} bytes to GPS")
                 return True
             except Exception as e:
                 logger.error(f"❌ RTCM write failed: {e}")

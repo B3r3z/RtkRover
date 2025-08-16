@@ -45,6 +45,7 @@ class RTKSystem(RTKSystemInterface):
             if self.ntrip_service.connect():
                 self._start_thread(self._gga_upload_loop, "GGAUploader")
                 self._start_thread(self._ntrip_monitor_loop, "NTRIPMonitor")
+                self._start_thread(self._rtcm_reader_loop, "RTCMReader")
                 logger.info("🌐 RTK system started with NTRIP connection")
             else:
                 logger.warning("⚠️ NTRIP connection failed - running in GPS-only mode")
@@ -84,12 +85,40 @@ class RTKSystem(RTKSystemInterface):
             except Exception as e:
                 logger.error(f"Observer error: {e}")
     
+    def _rtcm_reader_loop(self):
+        """Read RTCM data from NTRIP service and add to queue"""
+        rtcm_received_count = 0
+        while self.running and self.ntrip_service:
+            try:
+                rtcm_messages = self.ntrip_service.get_rtcm_data()
+                for rtcm_data in rtcm_messages:
+                    rtcm_received_count += 1
+                    logger.info(f"📡 RTCM IN #{rtcm_received_count}: Received {len(rtcm_data)} bytes from NTRIP")
+                    
+                    if not self.rtcm_queue.full():
+                        self.rtcm_queue.put(rtcm_data, block=False)
+                        logger.debug(f"✅ RTCM #{rtcm_received_count}: Added to queue")
+                    else:
+                        logger.warning(f"⚠️ RTCM queue full, dropping message #{rtcm_received_count}")
+                
+                time.sleep(0.1)  # Check for new RTCM data every 100ms
+            except Exception as e:
+                logger.error(f"RTCM reader error: {e}")
+                time.sleep(1.0)
+
     def _rtcm_writer_loop(self):
+        rtcm_count = 0
         while self.running:
             try:
                 rtcm_data = self.rtcm_queue.get(timeout=1.0)
+                rtcm_count += 1
+                logger.info(f"📡 RTCM #{rtcm_count}: Processing {len(rtcm_data)} bytes from queue")
+                
                 if self.gps.write_rtcm(rtcm_data):
                     self._stats.rtcm_messages += 1
+                    logger.debug(f"✅ RTCM #{rtcm_count}: Successfully written to GPS")
+                else:
+                    logger.warning(f"❌ RTCM #{rtcm_count}: Failed to write to GPS")
             except queue.Empty:
                 continue
             except Exception as e:

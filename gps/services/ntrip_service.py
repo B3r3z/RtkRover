@@ -1,5 +1,7 @@
 import logging
 import time
+import threading
+import queue
 from typing import List, Optional
 from ..ntrip_client import NTRIPClient
 from ..core.interfaces import NTRIPService
@@ -15,6 +17,10 @@ class NTRIPServiceAdapter(NTRIPService):
         self._max_reconnect_attempts = 5
         self._consecutive_failures = 0
         
+        # Buffer for RTCM data
+        self._rtcm_queue = queue.Queue(maxsize=100)
+        self._lock = threading.Lock()
+        
     def connect(self) -> bool:
         if not self.config.get('enabled', False):
             return False
@@ -24,10 +30,35 @@ class NTRIPServiceAdapter(NTRIPService):
                 config=self.config,
                 gga_callback=self._get_dummy_gga
             )
-            return self.client.connect()
+            
+            if self.client.connect():
+                # Start data reception with our callback
+                success = self.client.start_data_reception(self._on_rtcm_data)
+                if success:
+                    logger.info("✅ NTRIP client connected and data reception started")
+                    return True
+                else:
+                    logger.error("❌ Failed to start NTRIP data reception")
+                    return False
+            else:
+                logger.error("❌ Failed to connect NTRIP client")
+                return False
         except Exception as e:
             logger.error(f"NTRIP connection failed: {e}")
             return False
+    
+    def _on_rtcm_data(self, data: bytes):
+        """Callback for receiving RTCM data from NTRIP client"""
+        try:
+            if data:
+                logger.info(f"📡 NTRIP: Received {len(data)} bytes of data")
+                if not self._rtcm_queue.full():
+                    self._rtcm_queue.put(data, block=False)
+                    logger.debug(f"✅ RTCM data added to buffer ({self._rtcm_queue.qsize()} in queue)")
+                else:
+                    logger.warning("⚠️ RTCM buffer full, dropping data")
+        except Exception as e:
+            logger.error(f"Error handling RTCM data: {e}")
     
     def _get_dummy_gga(self) -> Optional[bytes]:
         from config.nmea_utils import build_dummy_gga
@@ -90,7 +121,24 @@ class NTRIPServiceAdapter(NTRIPService):
             return False
     
     def get_rtcm_data(self) -> List[bytes]:
-        return []
+        """Get all available RTCM data from buffer"""
+        rtcm_messages = []
+        try:
+            # Get all available data from queue
+            while not self._rtcm_queue.empty():
+                try:
+                    data = self._rtcm_queue.get_nowait()
+                    rtcm_messages.append(data)
+                except queue.Empty:
+                    break
+            
+            if rtcm_messages:
+                logger.debug(f"📡 Returning {len(rtcm_messages)} RTCM messages from buffer")
+            
+        except Exception as e:
+            logger.error(f"Error getting RTCM data: {e}")
+        
+        return rtcm_messages
     
     def disconnect(self):
         if self.client:
@@ -99,4 +147,7 @@ class NTRIPServiceAdapter(NTRIPService):
     
     def is_connected(self) -> bool:
         """Check if NTRIP service is connected"""
-        return self.client is not None and self.client.is_connected()
+        connected = self.client is not None and self.client.is_connected()
+        if not connected:
+            logger.debug("🔍 NTRIP connection check: NOT connected")
+        return connected
