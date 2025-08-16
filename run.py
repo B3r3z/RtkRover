@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-RTK Mower Flask Application Entry Point
-Enhanced with better configuration and error handling
-"""
-
 import sys
 import os
 import logging
@@ -20,7 +15,6 @@ def setup_logging():
     """Setup enhanced logging configuration"""
     log_level = logging.DEBUG if os.getenv('FLASK_DEBUG', 'False').lower() == 'true' else logging.INFO
     
-    # Create logs directory if it doesn't exist
     log_dir = PROJECT_ROOT / 'logs'
     log_dir.mkdir(exist_ok=True)
     
