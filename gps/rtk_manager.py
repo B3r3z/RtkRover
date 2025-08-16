@@ -665,6 +665,10 @@ class RTKManager:
                 if loop_iterations % 100 == 0:  # Every 100 iterations
                     logger.info(f"🔄 NMEA loop status: iterations={loop_iterations}, in_waiting={self.gps_serial.in_waiting if self.gps_serial else 'NO_SERIAL'}")
                 
+                # Periodic GPS configuration check (every 1000 iterations to avoid overhead)
+                if loop_iterations % 1000 == 0:
+                    self._periodic_gps_config_check()
+                
                 # Check for serial port availability and data
                 if not (self.gps_serial and self.gps_serial.is_open):
                     logger.warning("❌ GPS serial connection lost")
@@ -923,6 +927,9 @@ class RTKManager:
                         logger.info(f"🎯 RTK FLOAT ACTIVE! Quality=5, HDOP={position_data['hdop']:.1f}")
                     
                     logger.info(f"📊 GGA Quality Indicator: {gga_data.quality} = {rtk_status}")
+                    
+                    # 🔧 Mark timestamp for GGA reception to prevent GLL override
+                    self._last_gga_time = time.time()
                 else:
                     position_data["rtk_status"] = "Unknown"
                     logger.warning("⚠️ GGA message missing quality field!")
@@ -974,34 +981,43 @@ class RTKManager:
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 }
                 
-                # GLL status: A = Active (valid), V = Void (invalid)
-                if hasattr(gll_data, 'status') and gll_data.status == 'A':
-                    # Try to determine better RTK status from HDOP and satellites
-                    hdop = position_data.get("hdop", 0.0)
-                    satellites = position_data.get("satellites", 0)
-                    
-                    if hdop > 0 and hdop < 1.0 and satellites >= 12:
-                        position_data["rtk_status"] = "RTK Float"  # High precision suggests RTK
-                    elif hdop > 0 and hdop < 2.0 and satellites >= 8:
-                        position_data["rtk_status"] = "DGPS"  # Good precision
+                # 🔧 IMPORTANT: Don't override RTK status if we have recent GGA data with Quality Indicator
+                # Check if we received GGA recently (within last 5 seconds)
+                current_time = time.time()
+                if not hasattr(self, '_last_gga_time'):
+                    self._last_gga_time = 0
+                
+                # Only determine RTK status from GLL if no recent GGA with Quality Indicator
+                time_since_gga = current_time - self._last_gga_time
+                if time_since_gga > 5.0:  # No GGA for 5+ seconds
+                    # GLL status: A = Active (valid), V = Void (invalid)
+                    if hasattr(gll_data, 'status') and gll_data.status == 'A':
+                        # Try to determine RTK status from HDOP and satellites (less reliable)
+                        hdop = position_data.get("hdop", 0.0)
+                        satellites = position_data.get("satellites", 0)
+                        
+                        if hdop > 0 and hdop < 1.0 and satellites >= 12:
+                            position_data["rtk_status"] = "RTK Float"  # High precision suggests RTK
+                        elif hdop > 0 and hdop < 2.0 and satellites >= 8:
+                            position_data["rtk_status"] = "DGPS"  # Good precision
+                        else:
+                            position_data["rtk_status"] = "Single"  # Basic GPS fix
                     else:
                         position_data["rtk_status"] = "No Fix"
                         
-                    # Log enhanced RTK detection
-                    if hdop <= 0.5:
-                        logger.info(f"🎯 EXCELLENT precision detected: HDOP={hdop:.2f}, Sats={satellites}")
+                    # Update status if changed
+                    if position_data["rtk_status"] != self.rtk_status:
+                        old_status = self.rtk_status
+                        self.rtk_status = position_data["rtk_status"]
+                        logger.info(f"🔄 RTK Status changed (GLL fallback): {old_status} → {self.rtk_status}")
                 else:
-                    position_data["rtk_status"] = "No Fix"
+                    # Keep current RTK status from GGA, just use GLL for position backup
+                    position_data["rtk_status"] = self.rtk_status
+                    logger.debug(f"🔒 Preserving GGA RTK status: {self.rtk_status} (GGA received {time_since_gga:.1f}s ago)")
                 
                 logger.info(f"📍 Position update (GLL): lat={position_data['lat']:.6f}, lon={position_data['lon']:.6f}, " +
                            f"alt={position_data['altitude']:.1f}m, sats={position_data['satellites']}, " +
                            f"hdop={position_data['hdop']:.1f}, status={position_data['rtk_status']}")
-                
-                # Update status if changed
-                if position_data["rtk_status"] != self.rtk_status:
-                    old_status = self.rtk_status
-                    self.rtk_status = position_data["rtk_status"]
-                    logger.info(f"🔄 RTK Status changed: {old_status} → {self.rtk_status}")
                 
                 # Log signal quality warnings
                 self._log_signal_quality_warnings(position_data)
@@ -1098,32 +1114,36 @@ class RTKManager:
                 logger.info("💡 GGA Quality Indicator field is essential for RTK Fixed (4) vs Float (5) detection")
                 
                 # LC29H PQTM commands (Quectel Proprietary Message)
-                # These are the correct commands for LC29H GPS module!
+                # More aggressive approach - multiple configuration attempts
                 pqtm_commands = [
-                    # Disable all messages first
+                    # First attempt: Disable all messages completely
                     b"$PQTMGNSSMSG,0,0,0,0,0,0*2A\r\n",  # Disable all: GGA,GLL,GSA,GSV,RMC,VTG
-                    # Enable only GGA at 1Hz
+                    # Second attempt: Enable only GGA at 1Hz
                     b"$PQTMGNSSMSG,1,0,0,0,0,0*2B\r\n",  # Enable only GGA=1Hz, rest=0Hz
+                    # Third attempt: Alternative syntax - disable individual message types
+                    b"$PQTMCFGMSGRATE,1,0,0,0,0,0*7E\r\n",  # Alternative command format
+                    # Fourth attempt: Explicitly disable GSV messages that spam the log
+                    b"$PQTMGNSSMSG,1,0,0,0,0,0*2B\r\n",  # Repeat GGA-only command
                 ]
           
                 all_commands = pqtm_commands 
 
-                for cmd in all_commands:
+                for i, cmd in enumerate(all_commands):
                     try:
-                        logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
+                        logger.info(f"📤 Sending GPS config step {i+1}: {cmd.decode('ascii', errors='ignore').strip()}")
                         self.gps_serial.write(cmd)
                         self.gps_serial.flush()
-                        time.sleep(0.5)  # Give LC29H more time to process each command
+                        time.sleep(1.0)  # Longer delay between commands for LC29H processing
                         
                         # Check for immediate response
                         if self.gps_serial.in_waiting > 0:
                             response = self.gps_serial.read(self.gps_serial.in_waiting)
-                            logger.info(f"📥 GPS response: {response.decode('ascii', errors='ignore').strip()}")
+                            logger.info(f"📥 GPS response step {i+1}: {response.decode('ascii', errors='ignore').strip()}")
                     except Exception as cmd_error:
-                        logger.debug(f"GPS config command failed: {cmd_error}")
+                        logger.debug(f"GPS config step {i+1} failed: {cmd_error}")
                         continue
                 
-                time.sleep(5.0)  # Longer wait for configuration to take effect
+                time.sleep(3.0)  # Wait for all configuration to take effect
                 
                 # Send save configuration command
                 try:
@@ -1135,6 +1155,9 @@ class RTKManager:
                 except Exception as e:
                     logger.debug(f"Failed to save GPS config: {e}")
                 
+                # Mark timestamp for periodic re-configuration
+                self._last_pqtm_config_time = time.time()
+                
                 logger.info("🔄 GPS configuration completed - LC29H should now send only GGA messages")
                 logger.info("💡 If other NMEA messages still appear, LC29H may need manual reconfiguration")
                 logger.info("🔧 GGA enable commands sent - monitoring for GGA messages with RTK Quality Indicator...")
@@ -1142,6 +1165,30 @@ class RTKManager:
                 
         except Exception as e:
             logger.debug(f"Error enabling GGA: {e}")
+    
+    def _periodic_gps_config_check(self):
+        """Periodically re-send PQTM commands to maintain LC29H configuration"""
+        current_time = time.time()
+        
+        # Initialize timestamp if not exists
+        if not hasattr(self, '_last_pqtm_config_time'):
+            self._last_pqtm_config_time = 0
+        
+        # Re-configure every 5 minutes if we're still getting non-GGA messages
+        if (current_time - self._last_pqtm_config_time) > 300:  # 5 minutes
+            if hasattr(self, '_pqtm_msg_stats') and self._pqtm_msg_stats:
+                total_messages = sum(self._pqtm_msg_stats.values())
+                gga_messages = self._pqtm_msg_stats.get('GGA', 0)
+                gga_percentage = (gga_messages / total_messages * 100) if total_messages > 0 else 0
+                
+                # If less than 80% GGA messages, re-configure
+                if gga_percentage < 80 and total_messages > 20:
+                    logger.warning(f"🔄 LC29H configuration drift detected: {gga_percentage:.1f}% GGA messages")
+                    logger.info("📤 Re-sending PQTM configuration commands...")
+                    self._try_enable_gga_messages()
+                else:
+                    # Just update timestamp without re-config
+                    self._last_pqtm_config_time = current_time
     
     def _log_signal_quality_warnings(self, position_data):
         """Log warnings about poor signal quality that affects RTK performance"""
