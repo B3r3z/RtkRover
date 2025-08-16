@@ -188,3 +188,7 @@ class LC29HGPS(GPS):
             self.nmea_reader = None
         else:
             logger.debug("GPS connection already closed")
+    
+    def is_connected(self) -> bool:
+        """Check if GPS is connected"""
+        return self.serial_conn is not None and not self.serial_conn.closed

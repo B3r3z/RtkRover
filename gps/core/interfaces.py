@@ -42,6 +42,9 @@ class GPS(ABC):
     
     @abstractmethod
     def close(self): pass
+    
+    @abstractmethod
+    def is_connected(self) -> bool: pass
 
 class NTRIPService(ABC):
     @abstractmethod
@@ -55,6 +58,9 @@ class NTRIPService(ABC):
     
     @abstractmethod
     def disconnect(self): pass
+    
+    @abstractmethod
+    def is_connected(self) -> bool: pass
 
 class PositionObserver(ABC):
     @abstractmethod

@@ -68,14 +68,27 @@ class RTKManager:
     
     def get_status(self) -> Dict[str, Any]:
         if not self.system:
-            return {"rtk_status": "Disconnected", "running": False}
+            return {
+                "rtk_status": "Disconnected", 
+                "running": False,
+                "gps_connected": False,
+                "ntrip_connected": False
+            }
         
         stats = self.system.get_status()
         position = self.system.get_current_position()
         
+        # Check connection status
+        gps_connected = self.system.gps.is_connected() if hasattr(self.system, 'gps') else False
+        ntrip_connected = (self.system.ntrip_service.is_connected() 
+                          if hasattr(self.system, 'ntrip_service') and self.system.ntrip_service 
+                          else False)
+        
         return {
             "rtk_status": position.rtk_status.value if position else "No Fix",
             "running": self.running,
+            "gps_connected": gps_connected,
+            "ntrip_connected": ntrip_connected,
             "rtcm_messages": stats.rtcm_messages,
             "uptime": stats.connection_uptime,
             "current_position": {

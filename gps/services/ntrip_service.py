@@ -41,3 +41,7 @@ class NTRIPServiceAdapter(NTRIPService):
         if self.client:
             self.client.disconnect()
             self.client = None
+    
+    def is_connected(self) -> bool:
+        """Check if NTRIP service is connected"""
+        return self.client is not None and self.client.is_connected()
