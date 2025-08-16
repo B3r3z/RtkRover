@@ -867,6 +867,22 @@ class RTKManager:
         except Exception as e:
             logger.warning(f"Error processing NMEA: {e}")
             logger.debug(f"Raw data: {raw_data}")
+            # Track message type statistics for debugging PQTM effectiveness
+            msg_type = getattr(parsed_data, 'msgID', 'Unknown')
+            if not hasattr(self, '_pqtm_msg_stats'):
+                self._pqtm_msg_stats = {}
+            self._pqtm_msg_stats[msg_type] = self._pqtm_msg_stats.get(msg_type, 0) + 1
+            
+            # Log PQTM effectiveness every 50 messages
+            if sum(self._pqtm_msg_stats.values()) % 50 == 0:
+                logger.info(f"📊 PQTM Status - Message types: {dict(sorted(self._pqtm_msg_stats.items()))}")
+                if 'GGA' in self._pqtm_msg_stats and len(self._pqtm_msg_stats) == 1:
+                    logger.info("✅ PQTM SUCCESS: Only GGA messages received!")
+                elif 'GGA' not in self._pqtm_msg_stats:
+                    logger.warning("❌ PQTM FAILED: No GGA messages received!")
+                else:
+                    logger.warning(f"⚠️ PQTM PARTIAL: Expected only GGA, got {len(self._pqtm_msg_stats)} types")
+            
             logger.debug(f"Parsed data: {parsed_data}")
     
     def _process_gga_message(self, gga_data):
@@ -1085,8 +1101,10 @@ class RTKManager:
                 # LC29H PQTM commands (Quectel Proprietary Message)
                 # These are the correct commands for LC29H GPS module!
                 pqtm_commands = [
-                    # Enable GGA and VTG
-                    b"$PQTMGNSSMSG,1,0,0,0,0,1*29\r\n",  # GGA=1Hz, GLL,GSA,GSV,RMC,VTG=0Hz
+                    # Disable all messages first
+                    b"$PQTMGNSSMSG,0,0,0,0,0,0*2A\r\n",  # Disable all: GGA,GLL,GSA,GSV,RMC,VTG
+                    # Enable only GGA at 1Hz
+                    b"$PQTMGNSSMSG,1,0,0,0,0,0*2B\r\n",  # Enable only GGA=1Hz, rest=0Hz
                 ]
           
                 all_commands = pqtm_commands 
@@ -1096,12 +1114,30 @@ class RTKManager:
                         logger.info(f"📤 Sending GPS config: {cmd.decode('ascii', errors='ignore').strip()}")
                         self.gps_serial.write(cmd)
                         self.gps_serial.flush()
-                        time.sleep(0.3)  # Give LC29H time to process each command
+                        time.sleep(0.5)  # Give LC29H more time to process each command
+                        
+                        # Check for immediate response
+                        if self.gps_serial.in_waiting > 0:
+                            response = self.gps_serial.read(self.gps_serial.in_waiting)
+                            logger.info(f"📥 GPS response: {response.decode('ascii', errors='ignore').strip()}")
                     except Exception as cmd_error:
                         logger.debug(f"GPS config command failed: {cmd_error}")
                         continue
                 
-                time.sleep(3.0)
+                time.sleep(5.0)  # Longer wait for configuration to take effect
+                
+                # Send save configuration command
+                try:
+                    save_cmd = b"$PQTMSAVEPAR*53\r\n"  # Save configuration to flash
+                    logger.info(f"📤 Saving GPS config: {save_cmd.decode('ascii', errors='ignore').strip()}")
+                    self.gps_serial.write(save_cmd)
+                    self.gps_serial.flush()
+                    time.sleep(2.0)
+                except Exception as e:
+                    logger.debug(f"Failed to save GPS config: {e}")
+                
+                logger.info("🔄 GPS configuration completed - LC29H should now send only GGA messages")
+                logger.info("💡 If other NMEA messages still appear, LC29H may need manual reconfiguration")
                 logger.info("🔧 GGA enable commands sent - monitoring for GGA messages with RTK Quality Indicator...")
                 logger.info("🎯 Looking for GGA field 6: 4=RTK Fixed, 5=RTK Float, 2=DGPS, 1=GPS")
                 
