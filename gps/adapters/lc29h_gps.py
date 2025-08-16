@@ -109,41 +109,127 @@ class LC29HGPS(GPS):
         return None
     
     def _parse_gga(self, gga: NMEAMessage) -> Optional[Position]:
-        if not (hasattr(gga, 'lat') and hasattr(gga, 'lon')):
-            logger.warning("📡 GGA message missing lat/lon data")
-            return None
+        """
+        Parse GGA message with comprehensive validation
+        
+        GGA Format: $GNGGA,time,lat,lat_dir,lon,lon_dir,quality,numSV,HDOP,alt,alt_units,geoid_height,geoid_units,dgps_time,dgps_id*checksum
+        """
+        try:
+            # Basic structure validation
+            if not hasattr(gga, 'lat') or not hasattr(gga, 'lon'):
+                logger.warning("📡 GGA message missing lat/lon attributes")
+                return None
             
-        # Extract all GGA fields for logging
-        lat = float(gga.lat) if gga.lat else 0.0
-        lon = float(gga.lon) if gga.lon else 0.0
-        altitude = float(gga.alt) if hasattr(gga, 'alt') and gga.alt else 0.0
-        satellites = int(gga.numSV) if hasattr(gga, 'numSV') and gga.numSV else 0
-        hdop = float(gga.HDOP) if hasattr(gga, 'HDOP') and gga.HDOP else 0.0
-        quality = int(gga.quality) if hasattr(gga, 'quality') else 0
-        
-        quality_map = {
-            0: RTKStatus.NO_FIX,
-            1: RTKStatus.SINGLE,
-            2: RTKStatus.DGPS,
-            4: RTKStatus.RTK_FIXED,
-            5: RTKStatus.RTK_FLOAT
-        }
-        
-        rtk_status = quality_map.get(quality, RTKStatus.NO_FIX)
-        
-        # Log detailed GGA information
-        logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
-                   f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
-        
-        return Position(
-            lat=lat,
-            lon=lon,
-            altitude=altitude,
-            satellites=satellites,
-            hdop=hdop,
-            rtk_status=rtk_status,
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        )
+            # Check if position data is available (not None/empty)
+            if gga.lat is None or gga.lon is None or gga.lat == '' or gga.lon == '':
+                logger.debug("📡 GGA message has empty lat/lon data")
+                return None
+            
+            # Parse and validate coordinates
+            try:
+                lat = float(gga.lat)
+                lon = float(gga.lon)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"📡 GGA: Invalid lat/lon format - lat={gga.lat}, lon={gga.lon}: {e}")
+                return None
+            
+            # Validate coordinate ranges
+            if not (-90.0 <= lat <= 90.0):
+                logger.warning(f"📡 GGA: Invalid latitude {lat} (must be -90 to 90)")
+                return None
+            
+            if not (-180.0 <= lon <= 180.0):
+                logger.warning(f"📡 GGA: Invalid longitude {lon} (must be -180 to 180)")
+                return None
+            
+            # Parse altitude with validation
+            altitude = 0.0
+            if hasattr(gga, 'alt') and gga.alt is not None and gga.alt != '':
+                try:
+                    altitude = float(gga.alt)
+                    # Sanity check for altitude (-1000m to 10000m)
+                    if not (-1000.0 <= altitude <= 10000.0):
+                        logger.warning(f"📡 GGA: Suspicious altitude {altitude}m")
+                except (ValueError, TypeError):
+                    logger.warning(f"📡 GGA: Invalid altitude format: {gga.alt}")
+            
+            # Parse satellites count with validation
+            satellites = 0
+            if hasattr(gga, 'numSV') and gga.numSV is not None and gga.numSV != '':
+                try:
+                    satellites = int(gga.numSV)
+                    # Validate satellite count (0-50 is reasonable range)
+                    if not (0 <= satellites <= 50):
+                        logger.warning(f"📡 GGA: Suspicious satellite count {satellites}")
+                        satellites = max(0, min(50, satellites))  # Clamp to valid range
+                except (ValueError, TypeError):
+                    logger.warning(f"📡 GGA: Invalid satellite count format: {gga.numSV}")
+            
+            # Parse HDOP with validation
+            hdop = 0.0
+            if hasattr(gga, 'HDOP') and gga.HDOP is not None and gga.HDOP != '':
+                try:
+                    hdop = float(gga.HDOP)
+                    # Validate HDOP (0-50 is reasonable range)
+                    if not (0.0 <= hdop <= 50.0):
+                        logger.warning(f"📡 GGA: Suspicious HDOP {hdop}")
+                        hdop = max(0.0, min(50.0, hdop))  # Clamp to valid range
+                except (ValueError, TypeError):
+                    logger.warning(f"📡 GGA: Invalid HDOP format: {gga.HDOP}")
+            
+            # Parse quality indicator with validation
+            quality = 0
+            if hasattr(gga, 'quality') and gga.quality is not None and gga.quality != '':
+                try:
+                    quality = int(gga.quality)
+                    # Validate quality range (0-9 according to NMEA spec)
+                    if not (0 <= quality <= 9):
+                        logger.warning(f"📡 GGA: Invalid quality indicator {quality}")
+                        quality = 0
+                except (ValueError, TypeError):
+                    logger.warning(f"📡 GGA: Invalid quality format: {gga.quality}")
+            
+            # Map quality to RTK status
+            quality_map = {
+                0: RTKStatus.NO_FIX,        # No fix
+                1: RTKStatus.SINGLE,        # GPS fix (SPS)
+                2: RTKStatus.DGPS,          # DGPS fix
+                3: RTKStatus.SINGLE,        # PPS fix (treat as single)
+                4: RTKStatus.RTK_FIXED,     # RTK fixed
+            }
+            
+            rtk_status = quality_map.get(quality, RTKStatus.NO_FIX)
+            
+            # Additional validation for RTK statuses
+            if quality in [4, 5] and satellites < 4:
+                logger.warning(f"📡 GGA: RTK fix with only {satellites} satellites (unusual)")
+            
+            if quality >= 1 and hdop == 0.0:
+                logger.warning("📡 GGA: Valid fix but HDOP is 0 (suspicious)")
+            
+            # Log detailed GGA information with validation results
+            logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                       f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
+            
+            # Log validation warnings if any
+            if quality == 0:
+                logger.debug("📡 GGA: No fix available")
+            elif satellites < 4 and quality > 0:
+                logger.warning(f"📡 GGA: Fix claimed with insufficient satellites ({satellites})")
+            
+            return Position(
+                lat=lat,
+                lon=lon,
+                altitude=altitude,
+                satellites=satellites,
+                hdop=hdop,
+                rtk_status=rtk_status,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            )
+            
+        except Exception as e:
+            logger.error(f"📡 GGA parsing error: {e}", exc_info=True)
+            return None
     
     def _parse_gll(self, gll: NMEAMessage) -> Optional[Position]:
         if not (hasattr(gll, 'lat') and hasattr(gll, 'lon')):
