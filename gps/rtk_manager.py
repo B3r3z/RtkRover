@@ -874,6 +874,10 @@ class RTKManager:
         try:
             logger.info(f"🎯 Processing GGA: {gga_data}")
             
+            # Debug: sprawdź co faktycznie zawiera GGA
+            logger.debug(f"🔍 GGA Debug - lat='{gga_data.lat}', lon='{gga_data.lon}', quality='{gga_data.quality}', numSV='{gga_data.numSV}'")
+            logger.debug(f"🔍 GGA All attributes: {[attr for attr in dir(gga_data) if not attr.startswith('_')]}")
+            
             if hasattr(gga_data, 'lat') and hasattr(gga_data, 'lon'):
                 # Extract position data
                 position_data = {
@@ -970,7 +974,7 @@ class RTKManager:
                         
                     # Log enhanced RTK detection
                     if hdop <= 0.5:
-                        logger.info(f"🎯 EXCELLENT precision detected: HDOP={hdop:.2f}, Sats={satellites}, Mode={pos_mode}")
+                        logger.info(f"🎯 EXCELLENT precision detected: HDOP={hdop:.2f}, Sats={satellites}")
                 else:
                     position_data["rtk_status"] = "No Fix"
                 
