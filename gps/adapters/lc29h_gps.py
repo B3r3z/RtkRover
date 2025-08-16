@@ -107,16 +107,25 @@ class LC29HGPS(GPS):
                 except:
                     pass
         
-        logger.info(f"📡 NMEA {msg_type}: {msg_attrs}")
+        # Don't log all attributes for common messages to reduce noise
+        if msg_type in ['GSV', 'GSA', 'RMC', 'VTG', 'GLL']:
+            logger.debug(f"📡 NMEA {msg_type}: {msg_attrs}")
+        else:
+            logger.info(f"📡 NMEA {msg_type}: {msg_attrs}")
         
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
             return self._parse_gga(nmea_msg)
-        elif msg_type == 'GLL' and time.time() - self._last_gga_time > 5.0:
-            logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
-            return self._parse_gll(nmea_msg)
+        elif msg_type == 'GLL':
+            # Only use GLL as fallback if no recent GGA
+            if time.time() - self._last_gga_time > 5.0:
+                logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
+                return self._parse_gll(nmea_msg)
+            else:
+                logger.debug(f"📡 Received GLL message (ignored - have recent GGA)")
         elif msg_type in ['GSA', 'GSV', 'RMC', 'VTG']:
-            logger.debug(f"📡 Received {msg_type} message: {msg_attrs}")
+            # Common NMEA messages - only debug log to reduce noise
+            pass  # Already logged above
         else:
             logger.info(f"📡 Unknown NMEA message type {msg_type}: {msg_attrs}")
         return None
@@ -234,6 +243,7 @@ class LC29HGPS(GPS):
                 2: RTKStatus.DGPS,          # DGPS fix
                 3: RTKStatus.SINGLE,        # PPS fix (treat as single)
                 4: RTKStatus.RTK_FIXED,     # RTK fixed
+                5: RTKStatus.RTK_FLOAT,     # RTK float
             }
             
             rtk_status = quality_map.get(quality, RTKStatus.NO_FIX)
@@ -246,8 +256,15 @@ class LC29HGPS(GPS):
                 logger.warning("📡 GGA: Valid fix but HDOP is 0 (suspicious)")
             
             # Log detailed GGA information with validation results
-            logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
-                       f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
+            if quality == 4:  # RTK Fixed - special success logging
+                logger.info(f"🎯 RTK FIXED! Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                           f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={gga_attrs.get('diffAge', 'N/A')}s")
+            elif quality == 5:  # RTK Float
+                logger.info(f"🔶 RTK FLOAT: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                           f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={gga_attrs.get('diffAge', 'N/A')}s")
+            else:
+                logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                           f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
             
             # Log validation warnings if any
             if quality == 0:

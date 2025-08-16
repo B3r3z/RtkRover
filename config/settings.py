@@ -90,9 +90,9 @@ rtk_config = {
 
 # UART configuration for LC29H(DA)
 uart_config = {
-    "port": "/dev/ttyS0",  # Pi Zero 2W UART port
-    "baudrate": 115200,
-    "timeout": 3.0
+    "port": os.getenv("GPS_PORT", "/dev/ttyS0"),  # GPS UART port - configurable
+    "baudrate": int(os.getenv("GPS_BAUDRATE", "115200")),
+    "timeout": float(os.getenv("GPS_TIMEOUT", "3.0"))
 }
 
 # GPS tracking settings
