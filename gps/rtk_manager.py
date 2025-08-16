@@ -841,11 +841,26 @@ class RTKManager:
                 msg_id = parsed_data.msgID
                 self._msg_type_counts[msg_id] = self._msg_type_counts.get(msg_id, 0) + 1
                 
+                # Track message type statistics for debugging PQTM effectiveness
+                if not hasattr(self, '_pqtm_msg_stats'):
+                    self._pqtm_msg_stats = {}
+                self._pqtm_msg_stats[msg_id] = self._pqtm_msg_stats.get(msg_id, 0) + 1
+                
+                # Log PQTM effectiveness every 50 messages
+                if sum(self._pqtm_msg_stats.values()) % 50 == 0:
+                    logger.info(f"📊 PQTM Status - Message types: {dict(sorted(self._pqtm_msg_stats.items()))}")
+                    if 'GGA' in self._pqtm_msg_stats and len(self._pqtm_msg_stats) == 1:
+                        logger.info("✅ PQTM SUCCESS: Only GGA messages received!")
+                    elif 'GGA' not in self._pqtm_msg_stats:
+                        logger.warning("❌ PQTM FAILED: No GGA messages received!")
+                    else:
+                        logger.warning(f"⚠️ PQTM PARTIAL: Expected only GGA, got {len(self._pqtm_msg_stats)} types")
+                
                 # Log message type counts every 50 messages
                 total_messages = sum(self._msg_type_counts.values())
                 if total_messages % 50 == 0:
-                    logger.info(f"� NMEA message statistics (last 50): {dict(self._msg_type_counts)}")
-                
+                    logger.info(f"📊 NMEA message statistics (last 50): {dict(self._msg_type_counts)}")
+                    
                 if parsed_data.msgID in ['GGA']:
                     logger.info("🎯 Processing GGA message")
                     self._process_gga_message(parsed_data)
@@ -867,22 +882,6 @@ class RTKManager:
         except Exception as e:
             logger.warning(f"Error processing NMEA: {e}")
             logger.debug(f"Raw data: {raw_data}")
-            # Track message type statistics for debugging PQTM effectiveness
-            msg_type = getattr(parsed_data, 'msgID', 'Unknown')
-            if not hasattr(self, '_pqtm_msg_stats'):
-                self._pqtm_msg_stats = {}
-            self._pqtm_msg_stats[msg_type] = self._pqtm_msg_stats.get(msg_type, 0) + 1
-            
-            # Log PQTM effectiveness every 50 messages
-            if sum(self._pqtm_msg_stats.values()) % 50 == 0:
-                logger.info(f"📊 PQTM Status - Message types: {dict(sorted(self._pqtm_msg_stats.items()))}")
-                if 'GGA' in self._pqtm_msg_stats and len(self._pqtm_msg_stats) == 1:
-                    logger.info("✅ PQTM SUCCESS: Only GGA messages received!")
-                elif 'GGA' not in self._pqtm_msg_stats:
-                    logger.warning("❌ PQTM FAILED: No GGA messages received!")
-                else:
-                    logger.warning(f"⚠️ PQTM PARTIAL: Expected only GGA, got {len(self._pqtm_msg_stats)} types")
-            
             logger.debug(f"Parsed data: {parsed_data}")
     
     def _process_gga_message(self, gga_data):
