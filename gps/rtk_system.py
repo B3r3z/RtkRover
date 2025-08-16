@@ -41,11 +41,15 @@ class RTKSystem(RTKSystemInterface):
         self._start_thread(self._position_loop, "PositionReader")
         self._start_thread(self._rtcm_writer_loop, "RTCMWriter")
         
-        if self.ntrip_service and self.ntrip_service.connect():
-            self._start_thread(self._gga_upload_loop, "GGAUploader")
-            logger.info("RTK system started with NTRIP")
+        if self.ntrip_service:
+            if self.ntrip_service.connect():
+                self._start_thread(self._gga_upload_loop, "GGAUploader")
+                self._start_thread(self._ntrip_monitor_loop, "NTRIPMonitor")
+                logger.info("🌐 RTK system started with NTRIP connection")
+            else:
+                logger.warning("⚠️ NTRIP connection failed - running in GPS-only mode")
         else:
-            logger.info("RTK system started in GPS-only mode")
+            logger.info("📍 RTK system started in GPS-only mode")
             
         return True
     
@@ -92,15 +96,45 @@ class RTKSystem(RTKSystemInterface):
                 logger.error(f"RTCM write error: {e}")
     
     def _gga_upload_loop(self):
+        upload_count = 0
         while self.running and self.ntrip_service:
             try:
                 if self.current_position:
                     gga_data = self._build_gga()
                     if gga_data:
-                        self.ntrip_service.send_gga(gga_data)
+                        upload_count += 1
+                        success = self.ntrip_service.send_gga(gga_data)
+                        if upload_count % 10 == 0:  # Log every 10th upload
+                            status = "✅ OK" if success else "❌ FAILED"
+                            logger.debug(f"📡 GGA upload #{upload_count}: {status}")
                 time.sleep(10.0)
             except Exception as e:
                 logger.error(f"GGA upload error: {e}")
+                time.sleep(5.0)  # Wait before retry on error
+    
+    def _ntrip_monitor_loop(self):
+        """Monitor NTRIP connection health"""
+        last_status_log = 0
+        while self.running and self.ntrip_service:
+            try:
+                current_time = time.time()
+                is_connected = self.ntrip_service.is_connected()
+                
+                # Log status every 60 seconds
+                if current_time - last_status_log >= 60.0:
+                    status = "🌐 CONNECTED" if is_connected else "❌ DISCONNECTED"
+                    logger.info(f"NTRIP Status: {status}")
+                    last_status_log = current_time
+                
+                # If disconnected, log more frequently
+                if not is_connected and current_time - last_status_log >= 10.0:
+                    logger.warning("⚠️ NTRIP connection lost - auto-reconnect will attempt")
+                    last_status_log = current_time
+                
+                time.sleep(10.0)
+            except Exception as e:
+                logger.error(f"NTRIP monitor error: {e}")
+                time.sleep(30.0)
     
     def _build_gga(self) -> Optional[bytes]:
         if not self.current_position:
