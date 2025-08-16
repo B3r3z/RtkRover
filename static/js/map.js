@@ -44,6 +44,7 @@ class RTKRoverMap {
     }
     
     cacheControlElements() {
+        console.log('📋 Cachowanie elementów DOM...');
         this.domElements = {
             followBtn: document.getElementById('follow-btn'),
             trackBtn: document.getElementById('track-btn'),
@@ -63,14 +64,24 @@ class RTKRoverMap {
             gpsDot: document.getElementById('gps-dot'),
             ntripDot: document.getElementById('ntrip-dot')
         };
+        
+        // Check for missing elements
+        for (const [key, element] of Object.entries(this.domElements)) {
+            if (!element) {
+                console.warn(`⚠️ Element DOM nie znaleziony: ${key}`);
+            }
+        }
+        console.log('✅ Elementy DOM zamieszkane');
     }
     
     init() {
+        console.log('🚀 RTK Rover Map inicjalizacja...');
         this.initMap();
         this.cacheControlElements();
         this.setupControls();
         this.setupErrorHandling();
         this.startUpdates();
+        console.log('✅ RTK Rover Map inicjalizacja zakończona');
     }
     
     setupErrorHandling() {
@@ -149,33 +160,46 @@ class RTKRoverMap {
         const defaultLat = 52.0;
         const defaultLon = 19.0;
         
-        this.map = L.map('map').setView([defaultLat, defaultLon], 6);
+        console.log('Inicjalizacja mapy...');
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            maxZoom: 25
-        }).addTo(this.map);
-        
-        this.map.on('dragstart zoomstart', () => {
-            this.userInteracted = true;
-            this.setFollowMode(false);
-        });
-        
-        // Server track in muted color
-        this.trackPolyline = L.polyline([], {
-            color: '#9CA3AF',
-            weight: 3,
-            opacity: 0.8
-        }).addTo(this.map);
-        
-        // Local track in teal accent
-        this.drawPolyline = L.polyline([], {
-            color: '#2DD4BF',
-            weight: 4,
-            opacity: 0.9
-        }).addTo(this.map);
-        
-        console.log('Mapa zainicjalizowana');
+        try {
+            this.map = L.map('map').setView([defaultLat, defaultLon], 6);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 25
+            }).addTo(this.map);
+            
+            this.map.on('dragstart zoomstart', () => {
+                this.userInteracted = true;
+                this.setFollowMode(false);
+            });
+            
+            // Server track in muted color
+            this.trackPolyline = L.polyline([], {
+                color: '#9CA3AF',
+                weight: 3,
+                opacity: 0.8
+            }).addTo(this.map);
+            
+            // Local track in teal accent
+            this.drawPolyline = L.polyline([], {
+                color: '#2DD4BF',
+                weight: 4,
+                opacity: 0.9
+            }).addTo(this.map);
+            
+            console.log('✅ Mapa zainicjalizowana pomyślnie');
+            
+            // Force resize after a short delay to handle any container sizing issues
+            setTimeout(() => {
+                this.map.invalidateSize();
+                console.log('🔄 Rozmiar mapy odświeżony');
+            }, 100);
+            
+        } catch (error) {
+            console.error('❌ Błąd inicjalizacji mapy:', error);
+        }
     }
     
     setupControls() {
@@ -281,8 +305,10 @@ class RTKRoverMap {
                 this.currentPosition = data;
                 this.rtkStatus = data.rtk_status || 'Unknown';
             } else {
+                // Handle case when there's no GPS position available
                 console.warn('Brak pozycji GPS:', data.error || 'Nieznany powód');
-                this.updateRTKBadge('no-fix', data.rtk_status || 'BRAK SYGNAŁU');
+                this.updateUINoPosition(data);
+                this.rtkStatus = data.rtk_status || 'No Fix';
             }
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -435,6 +461,49 @@ class RTKRoverMap {
         // Update last update time
         if (position.timestamp && this.domElements.lastUpdate) {
             const time = new Date(position.timestamp).toLocaleTimeString('pl-PL');
+            this.domElements.lastUpdate.textContent = time;
+        }
+    }
+    
+    updateUINoPosition(data) {
+        // Update coordinates to show no position
+        if (this.domElements.coordinates) {
+            this.domElements.coordinates.textContent = '---.------ , ---.------';
+        }
+        
+        // Update satellites count
+        if (this.domElements.satellitesCount) {
+            this.domElements.satellitesCount.textContent = data.satellites || '--';
+        }
+        
+        // Update RTK status badge
+        this.updateRTKBadge('no-fix', data.rtk_status || 'BRAK SYGNAŁU');
+        
+        // Update HDOP
+        if (this.domElements.hdop) {
+            this.domElements.hdop.textContent = '--';
+            this.domElements.hdop.className = 'stat-value poor';
+        }
+        
+        // Update RTK fix status
+        if (this.domElements.rtkFixStatus) {
+            this.domElements.rtkFixStatus.textContent = data.rtk_status || 'No Fix';
+            this.domElements.rtkFixStatus.className = 'stat-value no-fix';
+        }
+        
+        // Update speed
+        if (this.domElements.speed) {
+            this.domElements.speed.textContent = '-- węzłów';
+        }
+        
+        // Update heading
+        if (this.domElements.heading) {
+            this.domElements.heading.textContent = '--°';
+        }
+        
+        // Update last update time
+        if (data.timestamp && this.domElements.lastUpdate) {
+            const time = new Date(data.timestamp).toLocaleTimeString('pl-PL');
             this.domElements.lastUpdate.textContent = time;
         }
     }

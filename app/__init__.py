@@ -188,7 +188,7 @@ def _register_routes(app):
                     "rtk_status": rtk_manager.rtk_status if hasattr(rtk_manager, 'rtk_status') else "No Fix",
                     "satellites": 0,
                     "timestamp": datetime.utcnow().isoformat() + "Z"
-                }), 404
+                }), 200
                 
         except RTKAppError as e:
             logger.error(f"RTK position error: {e}")
@@ -301,8 +301,8 @@ def _register_routes(app):
                 "components": {
                     "flask_app": "running",
                     "rtk_manager": "running" if rtk_manager and rtk_manager.running else "stopped",
-                    "gps_connection": "connected" if rtk_manager and rtk_manager.gps_serial else "disconnected",
-                    "ntrip_connection": "connected" if rtk_manager and rtk_manager.ntrip_client and rtk_manager.ntrip_client.is_connected() else "disconnected"
+                    "gps_connection": "connected" if rtk_manager and hasattr(rtk_manager, 'system') and rtk_manager.system and hasattr(rtk_manager.system, 'gps') and rtk_manager.system.gps.is_connected() else "disconnected",
+                    "ntrip_connection": "connected" if rtk_manager and hasattr(rtk_manager, 'system') and rtk_manager.system and hasattr(rtk_manager.system, 'ntrip_service') and rtk_manager.system.ntrip_service and rtk_manager.system.ntrip_service.is_connected() else "disconnected"
                 }
             }
             
