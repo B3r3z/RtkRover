@@ -131,6 +131,5 @@ class NTRIPServiceAdapter(NTRIPService):
     
     def is_connected(self) -> bool:
         connected = self.client is not None and self.client.is_connected()
-        if not connected:
-            logger.debug("🔍 NTRIP connection check: NOT connected")
+        # Optimized: Removed debug logging that fires too frequently
         return connected

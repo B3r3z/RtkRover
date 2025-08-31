@@ -20,6 +20,13 @@ class LC29HGPS(GPS):
         self.nmea_reader: Optional[NMEAReader] = None
         self._last_gga_time = 0
         
+        self._last_position_log = 0
+        self._last_rtcm_log = 0
+        self._position_log_interval = 10.0  
+        self._rtcm_log_interval = 5.0      
+        self._rtcm_message_count = 0
+        self._last_rtk_status = None
+        
     def connect(self) -> bool:
         logger.info(f"🔌 Connecting to LC29H GPS on {self.port}")
         for baudrate in self.BAUDRATES:
@@ -50,7 +57,7 @@ class LC29HGPS(GPS):
             if conn.in_waiting > 0:
                 data = conn.read(conn.in_waiting)
                 if b'$' in data and b'*' in data:
-                    logger.debug(f"📡 GPS communication OK - received NMEA data")
+                  #  logger.debug(f"📡 GPS communication OK - received NMEA data")
                     return True
             time.sleep(0.1)
         logger.debug("❌ No valid NMEA data received")
@@ -81,9 +88,10 @@ class LC29HGPS(GPS):
         try:
             raw_data, parsed_data = self.nmea_reader.read()
             if raw_data and parsed_data:
-                # Log raw NMEA sentence
-                raw_sentence = raw_data.decode('ascii', errors='ignore').strip()
-                logger.debug(f"📡 Raw NMEA: {raw_sentence}")
+                # Optimized: Only log raw NMEA for GGA messages to reduce noise
+                if hasattr(parsed_data, 'msgID') and parsed_data.msgID == 'GGA':
+                    raw_sentence = raw_data.decode('ascii', errors='ignore').strip()
+                    logger.debug(f"📡 Raw NMEA GGA: {raw_sentence}")
                 return self._parse_position(parsed_data)
         except Exception as e:
             logger.debug(f"Read error: {e}")
@@ -91,28 +99,11 @@ class LC29HGPS(GPS):
     
     def _parse_position(self, nmea_msg: NMEAMessage) -> Optional[Position]:
         if not hasattr(nmea_msg, 'msgID'):
-            logger.debug("📡 Received NMEA message without msgID")
             return None
             
         msg_type = nmea_msg.msgID
         
-        # Log all attributes of received NMEA message for debugging
-        msg_attrs = {}
-        for attr in dir(nmea_msg):
-            if not attr.startswith('_') and hasattr(nmea_msg, attr):
-                try:
-                    value = getattr(nmea_msg, attr)
-                    if not callable(value):
-                        msg_attrs[attr] = value
-                except:
-                    pass
-        
-        # Don't log all attributes for common messages to reduce noise
-        if msg_type in ['GSV', 'GSA', 'RMC', 'VTG', 'GLL']:
-            logger.debug(f"📡 NMEA {msg_type}: {msg_attrs}")
-        else:
-            logger.info(f"📡 NMEA {msg_type}: {msg_attrs}")
-        
+        # Optimized: Only process important messages, reduce logging overhead
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
             return self._parse_gga(nmea_msg)
@@ -121,47 +112,17 @@ class LC29HGPS(GPS):
             if time.time() - self._last_gga_time > 5.0:
                 logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
                 return self._parse_gll(nmea_msg)
-            else:
-                logger.debug(f"📡 Received GLL message (ignored - have recent GGA)")
         elif msg_type in ['GSA', 'GSV', 'RMC', 'VTG']:
-            # Common NMEA messages - only debug log to reduce noise
-            pass  # Already logged above
+            # Common NMEA messages - no logging to reduce noise
+            pass
         else:
-            logger.info(f"📡 Unknown NMEA message type {msg_type}: {msg_attrs}")
+            # Only log unknown messages occasionally to reduce noise
+            logger.debug(f"📡 Unknown NMEA message type: {msg_type}")
         return None
     
     def _parse_gga(self, gga: NMEAMessage) -> Optional[Position]:
-        """
-        Parse GGA message with comprehensive validation
-        
-        GGA Format: $GNGGA,time,lat,lat_dir,lon,lon_dir,quality,numSV,HDOP,alt,alt_units,geoid_height,geoid_units,dgps_time,dgps_id*checksum
-        """
         try:
-            # Log ALL GGA attributes for detailed debugging
-            gga_attrs = {}
-            for attr in dir(gga):
-                if not attr.startswith('_') and hasattr(gga, attr):
-                    try:
-                        value = getattr(gga, attr)
-                        if not callable(value):
-                            gga_attrs[attr] = value
-                    except:
-                        pass
-            
-            logger.info(f"🔍 GGA DETAILED: {gga_attrs}")
-            
-            # Check specific important fields
-            if hasattr(gga, 'quality'):
-                logger.info(f"🔍 GGA Quality field: '{gga.quality}' (type: {type(gga.quality)})")
-            if hasattr(gga, 'numSV'):
-                logger.info(f"🔍 GGA NumSV field: '{gga.numSV}' (type: {type(gga.numSV)})")
-            if hasattr(gga, 'HDOP'):
-                logger.info(f"🔍 GGA HDOP field: '{gga.HDOP}' (type: {type(gga.HDOP)})")
-            if hasattr(gga, 'diffAge'):
-                logger.info(f"🔍 GGA DiffAge field: '{gga.diffAge}' (type: {type(gga.diffAge)})")
-            if hasattr(gga, 'diffStation'):
-                logger.info(f"🔍 GGA DiffStation field: '{gga.diffStation}' (type: {type(gga.diffStation)})")
-            
+            # Optimized: No more detailed attribute logging - just parse what we need
             # Basic structure validation
             if not hasattr(gga, 'lat') or not hasattr(gga, 'lon'):
                 logger.warning("📡 GGA message missing lat/lon attributes")
@@ -248,25 +209,25 @@ class LC29HGPS(GPS):
             
             rtk_status = quality_map.get(quality, RTKStatus.NO_FIX)
             
-            # Additional validation for RTK statuses
-            if quality in [4, 5] and satellites < 4:
-                logger.warning(f"📡 GGA: RTK fix with only {satellites} satellites (unusual)")
+            # Get diffAge for logging if available
+            diff_age = getattr(gga, 'diffAge', 'N/A')
+            current_time = time.time()
+            status_changed = self._last_rtk_status != rtk_status
+            should_log_position = (current_time - self._last_position_log >= self._position_log_interval) or status_changed
             
-            if quality >= 1 and hdop == 0.0:
-                logger.warning("📡 GGA: Valid fix but HDOP is 0 (suspicious)")
-            
-            # Log detailed GGA information with validation results
-            if quality == 4:  # RTK Fixed - special success logging
-                logger.info(f"🎯 RTK FIXED! Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
-                           f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={gga_attrs.get('diffAge', 'N/A')}s")
-            elif quality == 5:  # RTK Float
-                logger.info(f"🔶 RTK FLOAT: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
-                           f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={gga_attrs.get('diffAge', 'N/A')}s")
-            else:
-                logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
-                           f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
-            
-            # Log validation warnings if any
+            if should_log_position:
+                if quality == 4:  # RTK Fixed - special success logging
+                    logger.info(f"🎯 RTK FIXED! Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                               f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={diff_age}s")
+                elif quality == 5:  # RTK Float
+                    logger.info(f"🔶 RTK FLOAT: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                               f"Sats={satellites}, HDOP={hdop:.1f}, DiffAge={diff_age}s")
+                else:
+                    logger.info(f"📍 GGA: Lat={lat:.6f}, Lon={lon:.6f}, Alt={altitude:.1f}m, "
+                               f"Sats={satellites}, HDOP={hdop:.1f}, Quality={quality}({rtk_status.value})")
+                
+                self._last_position_log = current_time
+                self._last_rtk_status = rtk_status
             if quality == 0:
                 logger.debug("📡 GGA: No fix available")
             elif satellites < 4 and quality > 0:
@@ -324,32 +285,30 @@ class LC29HGPS(GPS):
     def write_rtcm(self, data: bytes) -> bool:
         if self.serial_conn:
             try:
-                bytes_written = len(data)
-                
-                # Log first few bytes of RTCM data for debugging
-                hex_preview = data[:16].hex() if len(data) >= 16 else data.hex()
-                logger.info(f"📡 RTCM: Sending {bytes_written} bytes to GPS: {hex_preview}...")
-                
-                # Check if this looks like valid RTCM data (should start with 0xD3)
                 if len(data) > 0:
+                    # Optimized RTCM parsing with throttled logging
+                    self._rtcm_message_count += 1
+                    current_time = time.time()
+                    
                     if data[0] == 0xD3:
-                        logger.info(f"✅ RTCM: Valid RTCM preamble detected (0xD3)")
-                        
-                        # Try to extract message type for logging
                         if len(data) >= 6:
                             try:
                                 header = struct.unpack('>I', b'\x00' + data[0:3])[0]
                                 length = header & 0x3FF
-                                if len(data) >= 3 + 2:  # Header + at least 2 bytes for message type
+                                if len(data) >= 5:  # Header + at least 2 bytes for message type
                                     msg_type = struct.unpack('>H', data[3:5])[0] >> 4
-                                    logger.info(f"🔍 RTCM: Message type {msg_type}, length {length}")
-                            except:
-                                logger.debug("Could not extract RTCM message details")
+                      
+                            except Exception as e:
+                                logger.debug(f"Could not extract RTCM message details: {e}")
+                        
+                        # Write data to GPS - this is the critical part
+                        bytes_written = self.serial_conn.write(data)
+                        logger.info(f"📡 RTCM: Sending {len(data)} bytes to GPS: {data[:20].hex()}...")
+                        return bytes_written == len(data)
                     else:
                         logger.warning(f"⚠️ RTCM: Invalid preamble 0x{data[0]:02X} (expected 0xD3)")
                 
                 self.serial_conn.write(data)
-                logger.debug(f"✅ RTCM: Successfully sent {bytes_written} bytes to GPS")
                 return True
             except Exception as e:
                 logger.error(f"❌ RTCM write failed: {e}")
@@ -367,5 +326,4 @@ class LC29HGPS(GPS):
             logger.debug("GPS connection already closed")
     
     def is_connected(self) -> bool:
-        """Check if GPS is connected"""
         return self.serial_conn is not None and not self.serial_conn.closed
