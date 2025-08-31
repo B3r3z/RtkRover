@@ -1,13 +1,4 @@
-#!/usr/bin/env python3
-"""
-Enhanced NTRIP Client for RTK Rover with proper RTCM parsing
-Based on ntrip_client_new but adapted to the application architecture
-Provides clean separation between GPS and NTRIP functionality with RTCM validation
-"""
-
 import socket
-import sys
-import datetime
 import base64
 import time
 import threading
@@ -19,11 +10,10 @@ from .rtcm_parser import RTCMParser, RTCMValidator, RTCMMessage
 
 logger = logging.getLogger(__name__)
 
-# Configuration constants
-NTRIP_RECONNECT_INTERVAL = 1.0  # seconds between reconnection attempts
+NTRIP_RECONNECT_INTERVAL = 1.0 
 NTRIP_MAX_RECONNECT_ATTEMPTS = 5
-NTRIP_CONNECTION_TIMEOUT = 10.0  # seconds
-NTRIP_DATA_TIMEOUT = 3.0  # seconds for data reception
+NTRIP_CONNECTION_TIMEOUT = 10.0
+NTRIP_DATA_TIMEOUT = 3.0
 NTRIP_RESPONSE_BUFFER_SIZE = 4096
 NTRIP_USER_AGENT = "RTKRover/1.0"
 
@@ -40,26 +30,7 @@ class NTRIPAuthenticationError(NTRIPError):
     pass
 
 class NTRIPClient:
-    """
-    Enhanced NTRIP Client adapted from ntrip_client_new
-    Provides clean callback-based interface for RTK application
-    """
-    
     def __init__(self, config: Dict[str, Any], gga_callback: Optional[Callable] = None):
-        """
-        Initialize NTRIP client
-        
-        Args:
-            config: Configuration dictionary with keys:
-                   - caster: NTRIP caster hostname
-                   - port: NTRIP caster port
-                   - mountpoint: Mount point name
-                   - username: Username for authentication
-                   - password: Password for authentication
-                   - ssl: Whether to use SSL (optional, default False)
-                   - verbose: Verbose logging (optional, default False)
-            gga_callback: Callback function to get current GGA data as bytes
-        """
         self.config = config
         self.gga_callback = gga_callback
         self.socket: Optional[socket.socket] = None
@@ -71,22 +42,17 @@ class NTRIPClient:
         self._data_thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
         
-        # RTCM Parser for proper message handling
         self.rtcm_parser = RTCMParser()
         self.rtcm_validator = RTCMValidator()
         
-        # Configuration validation
         self._validate_config()
         
-        # Prepare authentication
         self._prepare_auth()
         
-        # SSL support
         self.use_ssl = config.get('ssl', False)
         self.verbose = config.get('verbose', False)
         
     def _validate_config(self):
-        """Validate NTRIP configuration"""
         required_fields = ['caster', 'port', 'mountpoint', 'username', 'password']
         missing_fields = [field for field in required_fields if not self.config.get(field)]
         
@@ -99,12 +65,10 @@ class NTRIPClient:
             raise NTRIPError(f"Invalid port number: {port}")
     
     def _prepare_auth(self):
-        """Prepare authentication string"""
         auth_string = f"{self.config['username']}:{self.config['password']}"
         self.auth_b64 = base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
     
     def _build_request(self) -> bytes:
-        """Build NTRIP HTTP request"""
         mountpoint = self.config["mountpoint"]
         if not mountpoint.startswith('/'):
             mountpoint = f"/{mountpoint}"
@@ -121,7 +85,6 @@ class NTRIPClient:
         return bytes(request_string, 'ascii')
     
     def _get_gga_data(self) -> Optional[bytes]:
-        """Get GGA data from callback or build dummy"""
         try:
             if self.gga_callback:
                 gga_data = self.gga_callback()
@@ -135,7 +98,6 @@ class NTRIPClient:
         return dummy_gga.encode('utf-8')
     
     def connect(self) -> bool:
-        """Connect to NTRIP caster"""
         with self._lock:
             if self.connected:
                 logger.warning("NTRIP already connected")
@@ -146,29 +108,22 @@ class NTRIPClient:
                 logger.info(f"Connecting to NTRIP caster {self.config['caster']}:{self.config['port']} "
                            f"(attempt {self.connection_attempts})")
                 
-                # Create socket
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket.settimeout(NTRIP_CONNECTION_TIMEOUT)
                 
-                # SSL wrapper if needed
                 if self.use_ssl:
                     self.socket = ssl.wrap_socket(self.socket)
                 
-                # Connect
                 error_indicator = self.socket.connect_ex((self.config["caster"], self.config["port"]))
                 if error_indicator != 0:
                     raise NTRIPConnectionError(f"Socket connection failed with error: {error_indicator}")
                 
-                # Send request
                 request = self._build_request()
                 self.socket.sendall(request)
                 
-                # Process response
                 if self._process_response():
                     self.connected = True
                     logger.info("NTRIP connection established successfully")
-                    
-                    # Send initial GGA
                     self._send_initial_gga()
                     return True
                 else:
@@ -181,7 +136,6 @@ class NTRIPClient:
                 return False
     
     def _process_response(self) -> bool:
-        """Process NTRIP caster response"""
         found_header = False
         connection_accepted = False
         
@@ -200,14 +154,12 @@ class NTRIPClient:
                     if self.verbose and line:
                         logger.debug(f"NTRIP header: {line}")
                     
-                    # Check for end of headers
                     if line == "":
                         found_header = True
                         if self.verbose:
                             logger.debug("End of NTRIP headers")
                         break
                     
-                    # Check response status
                     if "SOURCETABLE" in line:
                         raise NTRIPConnectionError("Mount point does not exist - received source table")
                     elif "401 Unauthorized" in line:
@@ -229,7 +181,6 @@ class NTRIPClient:
             return False
     
     def _send_initial_gga(self):
-        """Send initial GGA sentence to caster"""
         try:
             gga_data = self._get_gga_data()
             if gga_data:
@@ -240,12 +191,6 @@ class NTRIPClient:
             logger.warning(f"Failed to send initial GGA: {e}")
     
     def start_data_reception(self, data_callback: Callable[[bytes], None]) -> bool:
-        """
-        Start receiving RTCM data in background thread
-        
-        Args:
-            data_callback: Callback function to handle received RTCM data
-        """
         if not self.connected:
             logger.error("Cannot start data reception - not connected")
             return False
@@ -262,85 +207,67 @@ class NTRIPClient:
             name="NTRIPDataReceiver"
         )
         self._data_thread.start()
-        logger.info("NTRIP data reception started")
         return True
     
     def _data_reception_loop(self, data_callback: Callable[[bytes], None]):
-        """Main data reception loop"""
-        logger.info("NTRIP data reception loop started")
-        
         reconnect_attempts = 0
         last_gga_time = 0
-        gga_interval = 10.0  # Send GGA every 10 seconds
+        gga_interval = 1.0
         
         while self.running and reconnect_attempts < NTRIP_MAX_RECONNECT_ATTEMPTS:
-            try:
-                # Set socket timeout for data reception
+            try:                
                 if self.socket:
                     self.socket.settimeout(NTRIP_DATA_TIMEOUT)
-                
-                # Receive data
+
                 data = self.socket.recv(NTRIP_RESPONSE_BUFFER_SIZE)
                 
                 if data:
                     self.bytes_received += len(data)
                     self.last_data_time = time.time()
                     
-                    logger.info(f"📡 NTRIP received: {len(data)} bytes (total: {self.bytes_received})")
-                    
-                    # Detect data type first
                     data_type = self.rtcm_validator.detect_data_type(data)
-                    logger.info(f"📊 Data type detected: {data_type}")
                     
                     if data_type == 'nmea':
-                        # Critical error - NTRIP should never send NMEA
                         text = data.decode('ascii', errors='ignore').strip()
                         logger.error(f"❌ CRITICAL: NTRIP Mount Point '{self.config.get('mountpoint', 'unknown')}' sending NMEA instead of RTCM!")
                         logger.error(f"   Received NMEA: {text[:100]}...")
                         logger.error(f"   🔧 FIX: Change mount point to one that provides RTCM corrections")
                         logger.error(f"   📡 Suggested mount points: NEAR, POZN, WROC (for Poland)")
-                        continue  # Skip this data
+                        continue
                     
                     elif data_type == 'rtcm':
                         logger.info(f"🔧 Processing RTCM data: {len(data)} bytes")
                         
-                        # Parse RTCM messages (parser keeps its own buffer for fragments)
                         rtcm_messages = self.rtcm_parser.add_data(data)
 
                         if rtcm_messages:
                             logger.info(f"📦 Parsed {len(rtcm_messages)} RTCM messages")
                             
-                            # Process each complete RTCM message
                             for message in rtcm_messages:
                                 if message.is_valid:
-                                    # Forward valid RTCM message to GPS
-                                    logger.info(f"✅ Forwarding RTCM {message.message_type}: {len(message.raw_message)} bytes")
+                                    #logger.info(f"✅ Forwarding RTCM {message.message_type}: {len(message.raw_message)} bytes")
                                     data_callback(message.raw_message)
 
                                     msg_name = self.rtcm_parser.rtcm_message_types.get(
                                         message.message_type, f"Type {message.message_type}"
                                     )
-                                    logger.debug(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
+                                    #logger.debug(f"📡 RTCM {message.message_type} ({msg_name}): {len(message.raw_message)} bytes → GPS")
                                 else:
                                     logger.warning(
                                         f"❌ Dropped RTCM type {message.message_type}: CRC invalid (len={message.length})"
                                     )
                         else:
                             logger.debug("📝 RTCM data buffered, waiting for complete messages")
-                        # If no complete messages yet, do nothing; bytes remain buffered in parser
                     
                     else:
-                        # Unknown data type – don't forward; likely partial headers or noise
                         hex_preview = ' '.join([f'{b:02x}' for b in data[:20]])
                         logger.debug(f"⚠️  Unknown data type from NTRIP. First 20 bytes: {hex_preview}")
                     
-                    # Send periodic GGA updates
                     current_time = time.time()
                     if current_time - last_gga_time >= gga_interval:
                         self._send_periodic_gga()
                         last_gga_time = current_time
                     
-                    # Reset reconnect attempts on successful data
                     reconnect_attempts = 0
                 else:
                     logger.warning("No data received from NTRIP caster")
@@ -357,7 +284,6 @@ class NTRIPClient:
                     logger.info(f"Reconnecting to NTRIP... (attempt {reconnect_attempts})")
                     time.sleep(NTRIP_RECONNECT_INTERVAL * reconnect_attempts)
                     
-                    # Try to reconnect
                     if self._reconnect():
                         logger.info("NTRIP reconnection successful")
                         reconnect_attempts = 0
@@ -371,7 +297,6 @@ class NTRIPClient:
         self.running = False
     
     def _send_periodic_gga(self):
-        """Send periodic GGA update to caster"""
         try:
             gga_data = self._get_gga_data()
             if gga_data:
@@ -382,7 +307,6 @@ class NTRIPClient:
             logger.warning(f"Failed to send periodic GGA: {e}")
     
     def _reconnect(self) -> bool:
-        """Attempt to reconnect to NTRIP caster"""
         try:
             self._cleanup_socket()
             return self.connect()
@@ -391,7 +315,6 @@ class NTRIPClient:
             return False
     
     def send_gga(self, gga_data: bytes) -> bool:
-        """Send GGA data to caster manually"""
         with self._lock:
             if not self.connected or not self.socket:
                 return False
@@ -404,12 +327,8 @@ class NTRIPClient:
                 return False
     
     def disconnect(self):
-        """Disconnect from NTRIP caster"""
         logger.info("Disconnecting from NTRIP caster...")
-        
         self.running = False
-        
-        # Wait for data thread to finish
         if self._data_thread and self._data_thread.is_alive():
             self._data_thread.join(timeout=2)
         
@@ -417,7 +336,6 @@ class NTRIPClient:
         logger.info("NTRIP disconnected")
     
     def _cleanup_socket(self):
-        """Clean up socket connection"""
         with self._lock:
             self.connected = False
             if self.socket:
@@ -429,7 +347,6 @@ class NTRIPClient:
                     self.socket = None
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get client statistics including RTCM parser stats"""
         base_stats = {
             'connected': self.connected,
             'running': self.running,
@@ -445,20 +362,15 @@ class NTRIPClient:
             }
         }
         
-        # Add RTCM parser statistics
         rtcm_stats = self.rtcm_parser.get_statistics()
         base_stats['rtcm_parser'] = rtcm_stats
         
         return base_stats
     
     def is_connected(self) -> bool:
-        """Check if client is connected"""
         return self.connected and self.socket is not None
     
     def is_running(self) -> bool:
-        """Check if client is running (receiving data)"""
         return self.running
 
-
-# Backward compatibility - create alias for existing code
 NTRIPClient = NTRIPClient
