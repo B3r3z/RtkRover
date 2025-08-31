@@ -3,12 +3,8 @@ import base64
 import time
 import threading
 import logging
-import         request_string += "\r\n"
-        
-        if self.verbose:
-            logger.debug(f"NTRIP Request:\n{request_string}")
-        
-        return bytes(request_string, 'ascii')om typing import Optional, Callable, Dict, Any
+import ssl
+from typing import Optional, Callable, Dict, Any
 from config.nmea_utils import build_dummy_gga
 from .rtcm_parser import RTCMParser, RTCMValidator, RTCMMessage
 
@@ -84,7 +80,7 @@ class NTRIPClient:
         request_string += "\r\n"
         
         if self.verbose:
-            logger.debug(f"NTRIP request:\n{request_string}")
+            logger.debug(f"NTRIP Request:\n{request_string}")
         
         return bytes(request_string, 'ascii')
     
