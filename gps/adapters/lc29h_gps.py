@@ -91,7 +91,7 @@ class LC29HGPS(GPS):
                 # Optimized: Only log raw NMEA for GGA messages to reduce noise
                 if hasattr(parsed_data, 'msgID') and parsed_data.msgID == 'GGA':
                     raw_sentence = raw_data.decode('ascii', errors='ignore').strip()
-                    logger.debug(f"📡 Raw NMEA GGA: {raw_sentence}")
+                   # logger.debug(f"📡 Raw NMEA GGA: {raw_sentence}")
                 return self._parse_position(parsed_data)
         except Exception as e:
             logger.debug(f"Read error: {e}")
@@ -303,7 +303,7 @@ class LC29HGPS(GPS):
                         
                         # Write data to GPS - this is the critical part
                         bytes_written = self.serial_conn.write(data)
-                        logger.info(f"📡 RTCM: Sending {len(data)} bytes to GPS: {data[:20].hex()}...")
+                       # logger.info(f"📡 RTCM: Sending {len(data)} bytes to GPS: {data[:20].hex()}...")
                         return bytes_written == len(data)
                     else:
                         logger.warning(f"⚠️ RTCM: Invalid preamble 0x{data[0]:02X} (expected 0xD3)")
