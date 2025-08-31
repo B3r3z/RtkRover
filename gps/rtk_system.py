@@ -93,11 +93,10 @@ class RTKSystem(RTKSystemInterface):
                 rtcm_messages = self.ntrip_service.get_rtcm_data()
                 for rtcm_data in rtcm_messages:
                     rtcm_received_count += 1
-                    logger.info(f"📡 RTCM IN #{rtcm_received_count}: Received {len(rtcm_data)} bytes from NTRIP")
                     
                     if not self.rtcm_queue.full():
                         self.rtcm_queue.put(rtcm_data, block=False)
-                        logger.debug(f"✅ RTCM #{rtcm_received_count}: Added to queue")
+                        
                     else:
                         logger.warning(f"⚠️ RTCM queue full, dropping message #{rtcm_received_count}")
                 
@@ -112,11 +111,9 @@ class RTKSystem(RTKSystemInterface):
             try:
                 rtcm_data = self.rtcm_queue.get(timeout=1.0)
                 rtcm_count += 1
-                logger.info(f"📡 RTCM #{rtcm_count}: Processing {len(rtcm_data)} bytes from queue")
                 
                 if self.gps.write_rtcm(rtcm_data):
                     self._stats.rtcm_messages += 1
-                    logger.debug(f"✅ RTCM #{rtcm_count}: Successfully written to GPS")
                 else:
                     logger.warning(f"❌ RTCM #{rtcm_count}: Failed to write to GPS")
             except queue.Empty:
@@ -132,14 +129,8 @@ class RTKSystem(RTKSystemInterface):
                     gga_data = self._build_gga()
                     if gga_data:
                         upload_count += 1
-                        success = self.ntrip_service.send_gga(gga_data)
-                        if upload_count % 10 == 0:  # Log every 10th upload
-                            status = "✅ OK" if success else "❌ FAILED"
-                            logger.debug(f"📡 GGA upload #{upload_count}: {status}")
-                time.sleep(10.0)
             except Exception as e:
                 logger.error(f"GGA upload error: {e}")
-                time.sleep(5.0)  # Wait before retry on error
     
     def _ntrip_monitor_loop(self):
         """Monitor NTRIP connection health"""
