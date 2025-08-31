@@ -362,61 +362,53 @@ class RTKRoverMap {
     }
     
     updateMapPosition(position) {
-        const lat = position.lat;
-        const lon = position.lon;
-        
-        if (this.currentMarker) {
-            this.currentMarker.setLatLng([lat, lon]);
-        } else {
-            const roverIcon = L.divIcon({
-                html: '🛸',
-                iconSize: [24, 24],
-                iconAnchor: [12, 24],
-                className: 'rover-icon'
+        if (!this.map) return;
+
+        const { lat, lon, rtk_status } = position;
+        const latLng = [lat, lon];
+
+        // Create a custom icon using L.divIcon for better control
+        const rtkStatusClass = this.getRTKStatusClass(rtk_status);
+        const roverIcon = L.divIcon({
+            className: `rover-marker ${rtkStatusClass}`,
+            iconSize: [24, 36], // Width of circle, height includes pointer
+            iconAnchor: [12, 36], // Anchor at the tip of the pointer
+            popupAnchor: [0, -38] // Position popup above the marker
+        });
+
+        if (!this.currentMarker) {
+            this.currentMarker = L.marker(latLng, { icon: roverIcon }).addTo(this.map);
+            this.currentMarker.bindPopup(this.createPopupContent(position), {
+                offset: [0, -10]
             });
-            
-            this.currentMarker = L.marker([lat, lon], { icon: roverIcon })
-                .addTo(this.map)
-                .bindPopup(this.createPopupContent(position));
+        } else {
+            this.currentMarker.setLatLng(latLng);
+            this.currentMarker.setIcon(roverIcon); // Update icon to reflect status changes
+            this.currentMarker.setPopupContent(this.createPopupContent(position));
         }
-        
-        this.currentMarker.setPopupContent(this.createPopupContent(position));
-        
-        if (this.recordTrack) {
-            this.appendTrackPointIfNeeded(lat, lon);
-        }
-        
-        if (!this.hasCenteredInitially) {
-            this.map.setView([lat, lon], 17, { animate: false });
+
+        // Center map logic
+        if (this.followMode && !this.userInteracted) {
+            this.map.setView(latLng, this.map.getZoom() || 18);
             this.hasCenteredInitially = true;
-        } else if (this.followMode) {
-            try {
-                const bounds = this.map.getBounds();
-                const inner = L.latLngBounds(bounds.getSouthWest(), bounds.getNorthEast()).pad(-this.recenterPaddingRatio);
-                if (!inner.contains([lat, lon])) {
-                    this.map.panTo([lat, lon], { animate: true });
-                }
-            } catch (e) {
-                this.map.panTo([lat, lon], { animate: true });
+        } else if (this.followMode && this.userInteracted) {
+            // Re-center if marker is out of view
+            const bounds = this.map.getBounds().pad(-this.recenterPaddingRatio, -this.recenterPaddingRatio);
+            if (!bounds.contains(latLng)) {
+                this.map.panTo(latLng);
             }
         }
     }
     
     updateTrackLine(points) {
-        const trackCoords = points.map(point => [point.lat, point.lon]);
-        this.trackPolyline.setLatLngs(trackCoords);
-        this.trackPoints = points;
-        
-        if (points.length > 10 && !this.hasCenteredInitially && !this.userInteracted) {
-            try {
-                const bounds = this.trackPolyline.getBounds();
-                if (bounds.isValid()) {
-                    this.map.fitBounds(bounds, { padding: [20, 20] });
-                    this.hasCenteredInitially = true;
-                }
-            } catch (e) {
-                console.log('Nie można dopasować granic:', e);
-            }
+        if (!this.map || !points || points.length === 0) return;
+
+        if (!this.trackPolyline) {
+            this.trackPolyline = L.polyline(points, { 
+                className: 'track-line' // Use a CSS class for styling
+            }).addTo(this.map);
+        } else {
+            this.trackPolyline.setLatLngs(points);
         }
     }
     

@@ -3,8 +3,12 @@ import base64
 import time
 import threading
 import logging
-import ssl
-from typing import Optional, Callable, Dict, Any
+import         request_string += "\r\n"
+        
+        if self.verbose:
+            logger.debug(f"NTRIP Request:\n{request_string}")
+        
+        return bytes(request_string, 'ascii')om typing import Optional, Callable, Dict, Any
 from config.nmea_utils import build_dummy_gga
 from .rtcm_parser import RTCMParser, RTCMValidator, RTCMMessage
 
@@ -236,12 +240,12 @@ class NTRIPClient:
                         continue
                     
                     elif data_type == 'rtcm':
-                        logger.info(f"🔧 Processing RTCM data: {len(data)} bytes")
+                       # logger.info(f"🔧 Processing RTCM data: {len(data)} bytes")
                         
                         rtcm_messages = self.rtcm_parser.add_data(data)
 
                         if rtcm_messages:
-                            logger.info(f"📦 Parsed {len(rtcm_messages)} RTCM messages")
+                           # logger.info(f"📦 Parsed {len(rtcm_messages)} RTCM messages")
                             
                             for message in rtcm_messages:
                                 if message.is_valid:
@@ -256,9 +260,6 @@ class NTRIPClient:
                                     logger.warning(
                                         f"❌ Dropped RTCM type {message.message_type}: CRC invalid (len={message.length})"
                                     )
-                        else:
-                            logger.debug("📝 RTCM data buffered, waiting for complete messages")
-                    
                     else:
                         hex_preview = ' '.join([f'{b:02x}' for b in data[:20]])
                         logger.debug(f"⚠️  Unknown data type from NTRIP. First 20 bytes: {hex_preview}")

@@ -5,6 +5,7 @@ import queue
 from typing import List, Optional
 from ..ntrip_client import NTRIPClient
 from ..core.interfaces import NTRIPService
+from config.nmea_utils import build_dummy_gga
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ class NTRIPServiceAdapter(NTRIPService):
         
         self._rtcm_queue = queue.Queue(maxsize=100)
         self._lock = threading.Lock()
+        self._dummy_gga_data = build_dummy_gga().encode('ascii')
         
     def connect(self) -> bool:
         if not self.config.get('enabled', False):
@@ -56,8 +58,7 @@ class NTRIPServiceAdapter(NTRIPService):
             logger.error(f"Error handling RTCM data: {e}")
     
     def _get_dummy_gga(self) -> Optional[bytes]:
-        from config.nmea_utils import build_dummy_gga
-        return build_dummy_gga().encode('ascii')
+        return self._dummy_gga_data
     
     def send_gga(self, gga_data: bytes) -> bool:
         if not self.client:
@@ -68,6 +69,8 @@ class NTRIPServiceAdapter(NTRIPService):
             result = self.client.send_gga(gga_data)
             if result:
                 self._consecutive_failures = 0
+                # Suppressed verbose logging
+                # logger.debug(f"GGA sent successfully ({result} bytes)")
                 return True
             else:
                 self._handle_connection_failure()

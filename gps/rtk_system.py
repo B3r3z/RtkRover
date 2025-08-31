@@ -64,18 +64,20 @@ class RTKSystem(RTKSystemInterface):
             position = self.gps.read_position()
             if position:
                 self._update_position(position)
-            time.sleep(0.1)
+            else:
+                # Prevent busy-waiting on read error
+                time.sleep(0.1)
     
     def _update_position(self, position: Position):
         with self._position_lock:
             self.current_position = position
             self._position_count += 1
             
-        # Log position update every 10 seconds
+        # Log position update every 1 second
         current_time = time.time()
-        if current_time - self._last_position_log >= 10.0:
-            logger.info(f"🎯 Position updates: {self._position_count} total, "
-                       f"Current: {position.rtk_status.value}, "
+        if current_time - self._last_position_log >= 1.0:
+            logger.info(f"🎯 Position: {position.rtk_status.value}, "
+                       f"Lat: {position.lat:.6f}, Lon: {position.lon:.6f}, "
                        f"Sats: {position.satellites}, HDOP: {position.hdop:.1f}")
             self._last_position_log = current_time
             
@@ -125,12 +127,18 @@ class RTKSystem(RTKSystemInterface):
         upload_count = 0
         while self.running and self.ntrip_service:
             try:
-                if self.current_position:
-                    gga_data = self._build_gga()
-                    if gga_data:
-                        upload_count += 1
+                gga_data = self._build_gga()
+                if gga_data:
+                    upload_count += 1
+                    if not self.ntrip_service.send_gga(gga_data):
+                        logger.warning("Failed to send GGA, backing off for 5s")
+                        time.sleep(5.0)
+                
+                # Wait before sending next GGA
+                time.sleep(1.0)
             except Exception as e:
                 logger.error(f"GGA upload error: {e}")
+                time.sleep(5.0) # Wait longer on error
     
     def _ntrip_monitor_loop(self):
         """Monitor NTRIP connection health"""
@@ -140,10 +148,10 @@ class RTKSystem(RTKSystemInterface):
                 current_time = time.time()
                 is_connected = self.ntrip_service.is_connected()
                 
-                # Log status every 60 seconds
+                # Log status every 60 seconds at debug level
                 if current_time - last_status_log >= 60.0:
                     status = "🌐 CONNECTED" if is_connected else "❌ DISCONNECTED"
-                    logger.info(f"NTRIP Status: {status}")
+                    logger.debug(f"NTRIP Status: {status}")
                     last_status_log = current_time
                 
                 # If disconnected, log more frequently
@@ -157,10 +165,11 @@ class RTKSystem(RTKSystemInterface):
                 time.sleep(30.0)
     
     def _build_gga(self) -> Optional[bytes]:
-        if not self.current_position:
-            return None
-            
-        pos = self.current_position
+        with self._position_lock:
+            if not self.current_position:
+                return None
+            pos = self.current_position
+        
         lat = abs(pos.lat)
         lat_deg = int(lat)
         lat_min = (lat - lat_deg) * 60
