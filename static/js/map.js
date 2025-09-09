@@ -22,7 +22,10 @@ class RTKRoverMap {
         this.recordTrack = false;
         this.drawPolyline = null;
         this.localTrackPoints = [];
-        this.minTrackPointDistance = 0.001;
+        this.minTrackPointDistance = 0.00001; // ~1.1m dla RTK precision (było 0.001 = ~111m)
+        
+        // Precision mode for RTK Fixed
+        this.precisionMode = false;
         
         // Error handling
         this.consecutiveErrors = 0;
@@ -49,6 +52,7 @@ class RTKRoverMap {
             followBtn: document.getElementById('follow-btn'),
             trackBtn: document.getElementById('track-btn'),
             clearBtn: document.getElementById('clear-btn'),
+            precisionBtn: document.getElementById('precision-btn'),
             coordinates: document.getElementById('coordinates'),
             satellitesCount: document.getElementById('satellites-count'),
             rtkStatusBadge: document.getElementById('rtk-status-badge'),
@@ -184,8 +188,9 @@ class RTKRoverMap {
             
             // Local track in teal accent
             this.drawPolyline = L.polyline([], {
-                color: '#2DD4BF',
-                weight: 4,
+                className: 'track-line rtk-fixed', // Domyślnie RTK Fixed
+                color: '#10B981', // Success green dla RTK Fixed
+                weight: 5,
                 opacity: 0.9
             }).addTo(this.map);
             
@@ -221,6 +226,13 @@ class RTKRoverMap {
         if (this.domElements.clearBtn) {
             this.domElements.clearBtn.addEventListener('click', () => {
                 this.clearLocalTrack();
+            });
+        }
+        
+        // Precision button
+        if (this.domElements.precisionBtn) {
+            this.domElements.precisionBtn.addEventListener('click', () => {
+                this.togglePrecisionMode();
             });
         }
         
@@ -389,7 +401,14 @@ class RTKRoverMap {
 
         // Center map logic
         if (this.followMode && !this.userInteracted) {
-            this.map.setView(latLng, this.map.getZoom() || 18);
+            // Dla RTK Fixed używamy wyższego zoomu żeby zobaczyć precyzyjne zmiany
+            let zoomLevel = this.map.getZoom() || 18;
+            
+            if (rtk_status === 'RTK Fixed') {
+                zoomLevel = this.precisionMode ? 24 : 22;
+            }
+            
+            this.map.setView(latLng, zoomLevel);
             this.hasCenteredInitially = true;
         } else if (this.followMode && this.userInteracted) {
             // Re-center if marker is out of view
@@ -397,6 +416,51 @@ class RTKRoverMap {
             if (!bounds.contains(latLng)) {
                 this.map.panTo(latLng);
             }
+        }
+
+        // Add point to local track if recording is enabled
+        if (this.recordTrack) {
+            // Dostosuj precyzję śledzenia do statusu RTK
+            this.updateTrackPrecision(rtk_status);
+            this.appendTrackPointIfNeeded(lat, lon);
+        }
+    }
+
+    updateTrackPrecision(rtkStatus) {
+        // Dynamicznie dostosuj minimalną odległość w zależności od precyzji RTK
+        switch (rtkStatus) {
+            case 'RTK Fixed':
+                this.minTrackPointDistance = 0.000005; // ~0.5m - bardzo wysoka precyzja
+                this.updateTrackStyle('rtk-fixed', '#10B981', 5);
+                break;
+            case 'RTK Float':
+                this.minTrackPointDistance = 0.00001; // ~1.1m - wysoka precyzja
+                this.updateTrackStyle('rtk-float', '#F59E0B', 4);
+                break;
+            case 'DGPS':
+                this.minTrackPointDistance = 0.00005; // ~5.5m - średnia precyzja
+                this.updateTrackStyle('dgps', '#2DD4BF', 3);
+                break;
+            default:
+                this.minTrackPointDistance = 0.0001; // ~11m - standardowa precyzja
+                this.updateTrackStyle('no-fix', '#EF4444', 2);
+        }
+    }
+
+    updateTrackStyle(cssClass, color, weight) {
+        if (this.drawPolyline) {
+            // Usuwamy stare klasy i dodajemy nowe
+            const element = this.drawPolyline.getElement();
+            if (element) {
+                element.className = element.className.replace(/rtk-fixed|rtk-float|dgps|no-fix/g, '');
+                element.classList.add(cssClass);
+            }
+            
+            // Aktualizujemy także style inline dla pewności
+            this.drawPolyline.setStyle({
+                color: color,
+                weight: weight
+            });
         }
     }
     
@@ -590,9 +654,15 @@ class RTKRoverMap {
         const pts = this.localTrackPoints;
         const last = pts.length ? L.latLng(pts[pts.length - 1].lat, pts[pts.length - 1].lon) : null;
         
-        if (!last || last.distanceTo(ll) >= this.minTrackPointDistance) {
+        const distance = last ? last.distanceTo(ll) : Infinity;
+        const shouldAdd = !last || distance >= this.minTrackPointDistance;
+        
+        console.log(`🎯 Track point check: dist=${distance.toFixed(6)}m, min=${(this.minTrackPointDistance*111000).toFixed(1)}m, add=${shouldAdd}`);
+        
+        if (shouldAdd) {
             pts.push({ lat, lon });
             this.drawPolyline.setLatLngs(pts.map(p => [p.lat, p.lon]));
+            console.log(`✅ Added track point #${pts.length}: ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
         }
     }
     
@@ -630,6 +700,42 @@ class RTKRoverMap {
             this.domElements.clearBtn.disabled = this.localTrackPoints.length === 0;
             this.domElements.clearBtn.style.opacity = this.domElements.clearBtn.disabled ? '0.5' : '1';
         }
+        
+        // Precision button
+        if (this.domElements.precisionBtn) {
+            this.domElements.precisionBtn.classList.toggle('active', this.precisionMode);
+            this.domElements.precisionBtn.setAttribute('aria-pressed', this.precisionMode.toString());
+            const textSpan = this.domElements.precisionBtn.querySelector('.btn-text');
+            if (textSpan) {
+                textSpan.textContent = this.precisionMode ? 'AKTYWNE' : 'PRECYZJA';
+            }
+        }
+    }
+    
+    togglePrecisionMode() {
+        this.precisionMode = !this.precisionMode;
+        
+        if (this.precisionMode) {
+            // W trybie precyzyjnym dla RTK Fixed
+            console.log('🎯 Tryb precyzyjny aktywowany');
+            
+            // Automatycznie włącz śledzenie pozycji
+            this.followMode = true;
+            
+            // Automatycznie włącz nagrywanie śladu jeśli jeszcze nie
+            if (!this.recordTrack) {
+                this.setTrackRecording(true);
+            }
+            
+            // Zwiększ zoom jeśli mamy RTK Fixed i aktualną pozycję
+            if (this.rtkStatus === 'RTK Fixed' && this.map && this.currentMarker) {
+                this.map.setView(this.currentMarker.getLatLng(), 23);
+            }
+        } else {
+            console.log('🎯 Tryb precyzyjny wyłączony');
+        }
+        
+        this.updateControlsUI();
     }
 }
 

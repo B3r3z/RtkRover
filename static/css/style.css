@@ -278,6 +278,11 @@ body {
   background-color: var(--status-warning);
 }
 
+.control-btn.precision-btn.active {
+  background-color: var(--status-success);
+  color: var(--text-inverse);
+}
+
 .btn-icon {
   font-size: 14px;
 }
@@ -487,6 +492,33 @@ body {
   stroke-linejoin: round;
   stroke-linecap: round;
   filter: drop-shadow(2px 2px 0px rgba(44, 44, 44, 0.5));
+  fill: none;
+}
+
+/* RTK precision track styles */
+.leaflet-interactive.track-line.rtk-fixed {
+  stroke: var(--status-success);
+  stroke-width: 5;
+  stroke-dasharray: none;
+}
+
+.leaflet-interactive.track-line.rtk-float {
+  stroke: var(--status-warning);
+  stroke-width: 4;
+  stroke-dasharray: 5,2;
+}
+
+.leaflet-interactive.track-line.dgps {
+  stroke: var(--accent-teal);
+  stroke-width: 3;
+  stroke-dasharray: 8,4;
+}
+
+.leaflet-interactive.track-line.no-fix {
+  stroke: var(--status-error);
+  stroke-width: 2;
+  stroke-dasharray: 2,2;
+  opacity: 0.6;
 }
 
 /* =================================================
