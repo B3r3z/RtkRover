@@ -60,9 +60,12 @@ class RTKSystem(RTKSystemInterface):
         self._threads.append(thread)
     
     def _position_loop(self):
+        position_read_count = 0
         while self.running:
             position = self.gps.read_position()
             if position:
+                position_read_count += 1
+                logger.debug(f"📡 GPS read #{position_read_count}: {position.lat:.6f},{position.lon:.6f} {position.rtk_status.value}")
                 self._update_position(position)
             else:
                 # Prevent busy-waiting on read error
@@ -70,6 +73,16 @@ class RTKSystem(RTKSystemInterface):
     
     def _update_position(self, position: Position):
         with self._position_lock:
+            # Debug: Check if position actually changed
+            position_changed = (not self.current_position or 
+                              self.current_position.lat != position.lat or 
+                              self.current_position.lon != position.lon or
+                              self.current_position.rtk_status != position.rtk_status)
+            
+            if position_changed:
+                old_pos = self.current_position
+                logger.debug(f"🔄 Position UPDATE: {old_pos.lat:.6f},{old_pos.lon:.6f} -> {position.lat:.6f},{position.lon:.6f}" if old_pos else f"🔄 Position INITIAL: {position.lat:.6f},{position.lon:.6f}")
+            
             self.current_position = position
             self._position_count += 1
             

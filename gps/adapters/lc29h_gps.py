@@ -88,18 +88,6 @@ class LC29HGPS(GPS):
         try:
             raw_data, parsed_data = self.nmea_reader.read()
             if raw_data and parsed_data:
-                # Optimized: Only log raw NMEA for GGA messages to reduce noise
-                if hasattr(parsed_data, 'msgID') and parsed_data.msgID == 'GGA':
-                    raw_sentence = raw_data.decode('ascii', errors='ignore').strip()
-                    logger.debug(f"📡 Raw NMEA GGA: {raw_sentence}")
-                    
-                    # CRITICAL DEBUG: Log all GGA attributes to understand format
-                    gga_attrs = {}
-                    for attr in ['lat', 'lon', 'NS', 'EW', 'quality', 'numSV', 'HDOP', 'alt']:
-                        if hasattr(parsed_data, attr):
-                            gga_attrs[attr] = getattr(parsed_data, attr)
-                    logger.debug(f"🔍 GGA attributes: {gga_attrs}")
-                    
                 return self._parse_position(parsed_data)
         except Exception as e:
             logger.debug(f"Read error: {e}")
@@ -130,7 +118,6 @@ class LC29HGPS(GPS):
     
     def _parse_gga(self, gga: NMEAMessage) -> Optional[Position]:
         try:
-            # Optimized: No more detailed attribute logging - just parse what we need
             # Basic structure validation
             if not hasattr(gga, 'lat') or not hasattr(gga, 'lon'):
                 logger.warning("📡 GGA message missing lat/lon attributes")
@@ -141,32 +128,12 @@ class LC29HGPS(GPS):
                 logger.debug("📡 GGA message has empty lat/lon data")
                 return None
             
-            # Parse and validate coordinates - CRITICAL FIX: Handle NMEA DDMM.MMMM format
+            # Parse and validate coordinates
             try:
-                # Convert NMEA DDMM.MMMM format to decimal degrees
-                lat_raw = float(gga.lat)
-                lon_raw = float(gga.lon)
+                lat = float(gga.lat)
+                lon = float(gga.lon)
                 
-                # DEBUG: Log raw NMEA values for troubleshooting
-                if hasattr(gga, 'NS') and hasattr(gga, 'EW'):
-                    logger.debug(f"🔍 Raw NMEA: lat={lat_raw} {gga.NS}, lon={lon_raw} {gga.EW}")
-                
-                # Convert NMEA format (DDMM.MMMM) to decimal degrees
-                lat_degrees = int(lat_raw // 100)
-                lat_minutes = lat_raw - (lat_degrees * 100)
-                lat = lat_degrees + (lat_minutes / 60.0)
-                
-                lon_degrees = int(lon_raw // 100)  
-                lon_minutes = lon_raw - (lon_degrees * 100)
-                lon = lon_degrees + (lon_minutes / 60.0)
-                
-                # Handle hemisphere indicators
-                if hasattr(gga, 'NS') and gga.NS == 'S':
-                    lat = -lat
-                if hasattr(gga, 'EW') and gga.EW == 'W':
-                    lon = -lon
-                    
-                logger.debug(f"🔧 NMEA conversion: {lat_raw:.6f}{gga.NS if hasattr(gga, 'NS') else ''} -> {lat:.6f}, {lon_raw:.6f}{gga.EW if hasattr(gga, 'EW') else ''} -> {lon:.6f}")
+                logger.debug(f"🔍 Parsed coordinates: lat={lat:.6f}, lon={lon:.6f}")
                 
             except (ValueError, TypeError) as e:
                 logger.warning(f"📡 GGA: Invalid lat/lon format - lat={gga.lat}, lon={gga.lon}: {e}")
@@ -296,34 +263,9 @@ class LC29HGPS(GPS):
             logger.warning("📡 GLL message missing lat/lon data")
             return None
         
-        # CRITICAL FIX: Handle NMEA DDMM.MMMM format for GLL as well
-        try:
-            lat_raw = float(gll.lat) if gll.lat else 0.0
-            lon_raw = float(gll.lon) if gll.lon else 0.0
-            
-            if lat_raw != 0.0 and lon_raw != 0.0:
-                # Convert NMEA format (DDMM.MMMM) to decimal degrees
-                lat_degrees = int(lat_raw // 100)
-                lat_minutes = lat_raw - (lat_degrees * 100)
-                lat = lat_degrees + (lat_minutes / 60.0)
-                
-                lon_degrees = int(lon_raw // 100)
-                lon_minutes = lon_raw - (lon_degrees * 100)
-                lon = lon_degrees + (lon_minutes / 60.0)
-                
-                # Handle hemisphere indicators
-                if hasattr(gll, 'NS') and gll.NS == 'S':
-                    lat = -lat
-                if hasattr(gll, 'EW') and gll.EW == 'W':
-                    lon = -lon
-            else:
-                lat = lat_raw
-                lon = lon_raw
-                
-        except (ValueError, TypeError) as e:
-            logger.warning(f"📡 GLL: Invalid lat/lon format - lat={gll.lat}, lon={gll.lon}: {e}")
-            lat = 0.0
-            lon = 0.0
+        # Parse coordinates (pynmeagps already returns decimal degrees)
+        lat = float(gll.lat) if gll.lat else 0.0
+        lon = float(gll.lon) if gll.lon else 0.0
         status = gll.status if hasattr(gll, 'status') else 'V'
         rtk_status = RTKStatus.SINGLE if status == 'A' else RTKStatus.NO_FIX
         
