@@ -10,10 +10,12 @@ logger = logging.getLogger(__name__)
 
 class LC29HGPS(GPS):
     BAUDRATES = [115200, 38400, 9600]
-    # Updated PQTM commands for LC29H(DA) - correct format
-    PQTM_DISABLE_ALL = b"$PQTMGNSSMSG,W,0,0,0,0,0,0*20\r\n"
-    PQTM_ENABLE_GGA = b"$PQTMGNSSMSG,W,1,0,0,0,0,0*21\r\n"  # Only GGA enabled
-    PQTM_SAVE = b"$PQTMSAVEPAR*53\r\n"
+    # We'll build PQTM commands dynamically to ensure correct checksum.
+    # Format candidates (Quectel variants differ: some firmwares use optional 'W' after command name):
+    #  $PQTMGNSSMSG[,W],gga,gll,gsa,gsv,rmc,vtg,reserved*CS\r\n
+    # Where each field is output interval in seconds (0 = disabled).
+    # We attempt without 'W' first (newer spec), then with 'W' if verification fails.
+    PQTM_SAVE_BODY = "PQTMSAVEPAR"  # Will have checksum computed dynamically
     
     def __init__(self, port: str):
         self.port = port
@@ -68,59 +70,81 @@ class LC29HGPS(GPS):
         if not self.serial_conn:
             return
             
-        logger.info("🔧 Configuring LC29H with PQTM commands...")
-        
-        # First, disable all NMEA messages
-        logger.info("🔧 Step 1: Disabling all NMEA messages")
-        self.serial_conn.write(self.PQTM_DISABLE_ALL)
-        self.serial_conn.flush()
-        time.sleep(2.0)
-        
-        # Enable only GGA messages
-        logger.info("🔧 Step 2: Enabling GGA messages only")
-        self.serial_conn.write(self.PQTM_ENABLE_GGA)
-        self.serial_conn.flush()
-        time.sleep(2.0)
-        
-        # Save configuration to flash
-        logger.info("🔧 Step 3: Saving configuration to flash")
-        self.serial_conn.write(self.PQTM_SAVE)
-        self.serial_conn.flush()
-        time.sleep(2.0)
-        
-        # Clear any pending data in buffer
-        if self.serial_conn.in_waiting > 0:
-            discarded = self.serial_conn.read(self.serial_conn.in_waiting)
-            logger.debug(f"🔧 Discarded {len(discarded)} bytes of pending data")
-        
-        logger.info("✅ LC29H configured for GGA-only output")
-        
-        # Test if configuration worked by checking message types for a few seconds
-        logger.info("🔧 Testing configuration...")
-        test_start = time.time()
-        message_types = set()
-        
-        while time.time() - test_start < 5.0 and len(message_types) < 10:
+        logger.info("🔧 Configuring LC29H (attempting to force GGA-only output)...")
+
+        def build_nmea(body: str) -> bytes:
+            csum = 0
+            for ch in body:
+                csum ^= ord(ch)
+            return f"${body}*{csum:02X}\r\n".encode('ascii')
+
+        def send_cmd(body: str, label: str):
+            cmd = build_nmea(body)
+            logger.debug(f"➡️ Sending {label}: {cmd.decode().strip()}")
+            self.serial_conn.write(cmd)
+            self.serial_conn.flush()
+            return cmd
+
+        def sample_message_types(duration=3.0):
+            types = set()
+            start = time.time()
+            while time.time() - start < duration and len(types) < 12:
+                if self.serial_conn.in_waiting > 0:
+                    try:
+                        line = self.serial_conn.readline().decode('ascii', errors='ignore').strip()
+                        if line.startswith('$') and ',' in line:
+                            t = line.split(',')[0][1:]
+                            types.add(t)
+                    except Exception:
+                        pass
+                time.sleep(0.05)
+            return types
+
+        def apply_variant(use_w: bool) -> bool:
+            variant_tag = 'WITH W' if use_w else 'NO W'
+            logger.info(f"🔧 Applying PQTMGNSSMSG variant: {variant_tag}")
+            base = "PQTMGNSSMSG,W" if use_w else "PQTMGNSSMSG"
+
+            # 1. Disable all
+            send_cmd(f"{base},0,0,0,0,0,0,0", "DISABLE_ALL")
+            time.sleep(1.2)
+            # 2. Enable only GGA at 1s interval
+            send_cmd(f"{base},1,0,0,0,0,0,0", "ENABLE_GGA")
+            time.sleep(1.2)
+            # 3. Save
+            send_cmd(self.PQTM_SAVE_BODY, "SAVE")
+            time.sleep(1.0)
+
+            # Clear buffer noise before sampling
             if self.serial_conn.in_waiting > 0:
-                try:
-                    data = self.serial_conn.readline().decode('ascii', errors='ignore').strip()
-                    if data.startswith('$') and ',' in data:
-                        msg_type = data.split(',')[0][1:]  # Extract message type without $
-                        message_types.add(msg_type)
-                except:
-                    pass
-            time.sleep(0.1)
-        
-        if message_types:
-            logger.info(f"🔧 Detected message types after config: {sorted(message_types)}")
-            if len(message_types) == 1 and 'GNGGA' in message_types:
-                logger.info("✅ Configuration successful - only GGA messages detected")
-            elif 'GNGGA' in message_types and len(message_types) <= 3:
-                logger.warning(f"⚠️ Partial success - GGA + {len(message_types)-1} other types")
-            else:
-                logger.warning(f"❌ Configuration may have failed - {len(message_types)} message types detected")
+                self.serial_conn.read(self.serial_conn.in_waiting)
+            time.sleep(0.2)
+            types = sample_message_types(4.0)
+            logger.info(f"🔧 Detected message types (variant {variant_tag}): {sorted(types)}")
+            if types == {"GNGGA"} or types == {"GPGGA"}:
+                logger.info("✅ GGA-only achieved")
+                return True
+            # Some firmwares output talker-specific GGA (GNGGA) plus one RMC that cannot be disabled— treat as near success
+            if ("GNGGA" in types or "GPGGA" in types) and len(types) <= 2 and any(t.endswith("RMC") for t in types):
+                logger.warning("⚠️ GGA + RMC only (acceptable fallback)")
+                return True
+            return False
+
+        success = False
+        # Try up to 2 cycles for each variant
+        for use_w in (False, True):
+            for attempt in range(1, 3):
+                logger.info(f"🔁 Variant {'W' if use_w else 'standard'} attempt {attempt}")
+                if apply_variant(use_w):
+                    success = True
+                    break
+            if success:
+                break
+
+        if not success:
+            logger.warning("❌ Unable to enforce GGA-only output after all attempts. Leaving current configuration.")
         else:
-            logger.warning("🔧 No NMEA messages detected during test - may be normal")
+            logger.info("✅ LC29H configured (final state verified)")
     
     def read_position(self) -> Optional[Position]:
         if not self.nmea_reader or not self.serial_conn:
