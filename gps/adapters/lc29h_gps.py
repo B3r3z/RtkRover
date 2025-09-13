@@ -88,6 +88,8 @@ class LC29HGPS(GPS):
         try:
             raw_data, parsed_data = self.nmea_reader.read()
             if raw_data and parsed_data:
+                # DEBUG: Log that we're reading from GPS
+                logger.info(f"🔧 GPS READ attempt: got {parsed_data.msgID if hasattr(parsed_data, 'msgID') else 'UNKNOWN'}")
                 return self._parse_position(parsed_data)
         except Exception as e:
             logger.debug(f"Read error: {e}")
@@ -99,10 +101,14 @@ class LC29HGPS(GPS):
             
         msg_type = nmea_msg.msgID
         
+        logger.info(f"🔧 Parsing NMEA message type: {msg_type}")
+        
         # Optimized: Only process important messages, reduce logging overhead
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
-            return self._parse_gga(nmea_msg)
+            result = self._parse_gga(nmea_msg)
+            logger.info(f"🔧 GGA parsing result: {'SUCCESS' if result else 'FAILED'}")
+            return result
         elif msg_type == 'GLL':
             # Only use GLL as fallback if no recent GGA
             if time.time() - self._last_gga_time > 5.0:
@@ -133,7 +139,8 @@ class LC29HGPS(GPS):
                 lat = float(gga.lat)
                 lon = float(gga.lon)
                 
-                logger.debug(f"🔍 Parsed coordinates: lat={lat:.6f}, lon={lon:.6f}")
+                # Show high-precision coordinates to detect micro-movements
+                logger.info(f"🎯 GGA COORDS: lat={lat:.8f}, lon={lon:.8f}")
                 
             except (ValueError, TypeError) as e:
                 logger.warning(f"📡 GGA: Invalid lat/lon format - lat={gga.lat}, lon={gga.lon}: {e}")

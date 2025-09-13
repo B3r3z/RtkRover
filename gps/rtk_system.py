@@ -65,7 +65,7 @@ class RTKSystem(RTKSystemInterface):
             position = self.gps.read_position()
             if position:
                 position_read_count += 1
-                logger.debug(f"📡 GPS read #{position_read_count}: {position.lat:.6f},{position.lon:.6f} {position.rtk_status.value}")
+                logger.info(f"📡 GPS read #{position_read_count}: {position.lat:.6f},{position.lon:.6f} {position.rtk_status.value}")
                 self._update_position(position)
             else:
                 # Prevent busy-waiting on read error
@@ -81,7 +81,7 @@ class RTKSystem(RTKSystemInterface):
             
             if position_changed:
                 old_pos = self.current_position
-                logger.debug(f"🔄 Position UPDATE: {old_pos.lat:.6f},{old_pos.lon:.6f} -> {position.lat:.6f},{position.lon:.6f}" if old_pos else f"🔄 Position INITIAL: {position.lat:.6f},{position.lon:.6f}")
+                logger.info(f"🔄 Position UPDATE: {old_pos.lat:.6f},{old_pos.lon:.6f} -> {position.lat:.6f},{position.lon:.6f}" if old_pos else f"🔄 Position INITIAL: {position.lat:.6f},{position.lon:.6f}")
             
             self.current_position = position
             self._position_count += 1
