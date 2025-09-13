@@ -21,8 +21,8 @@ button:active { background:#444; }
 button.active { background:#0a6ad1; border-color:#0a6ad1; color:#fff; }
 button.danger { background:#7d1626; border-color:#941a2c; }
 button.danger:hover { background:#8f1b30; }
-.map-container { flex:1; position:relative; }
-#map { position:absolute; inset:0; z-index:0; }
+.map-container { flex:1; position:relative; min-height:400px; }
+#map { position:absolute; inset:0; z-index:0; width:100%; height:100%; }
 .rtk-bar { height:18px; font-size:11px; letter-spacing:.5px; display:flex; align-items:center; padding:0 10px; background:#333; border-bottom:1px solid #222; font-weight:500; }
 .rtk-bar.rtk-fixed { background:#0a8f3d; }
 .rtk-bar.rtk-float { background:#c98500; color:#111; }

@@ -20,6 +20,9 @@
     const g = id=>document.getElementById(id);
     const ui = {lat:g('lat'),lon:g('lon'),alt:g('alt'),time:g('time'),speed:g('speed'),heading:g('heading'),mode:g('statusMode'),fix:g('statusFix'),sat:g('statusSat'),hdop:g('statusHdop'),
                             c:g('btnCenter'),p:g('btnPrecision'),clr:g('btnClearTrack'),wpName:g('wpName'),add:g('btnAddWp'),exp:g('btnExportWp'),wclr:g('btnClearWp'),list:g('waypointList')};
+    // Basic missing element warning (in case template desync)
+    Object.entries(ui).forEach(([k,v])=>{ if(!v) console.warn('UI element missing:',k); });
+    let lastErrShown = 0;
 
     function initMap(){
         st.map = L.map('map');
@@ -29,7 +32,22 @@
         st.wpLayer = L.layerGroup().addTo(st.map);
         setTimeout(()=> st.map.invalidateSize(), 150);
     }
-    async function j(url){ try{ const r=await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error(r.status); return await r.json(); }catch(e){ return {error:e.message}; } }
+    async function j(url){
+        try{
+            const r=await fetch(url,{cache:'no-store'});
+            if(!r.ok) throw new Error(r.status);
+            return await r.json();
+        }catch(e){
+            const now=Date.now();
+            if(now-lastErrShown>5000){
+                console.error('Fetch error', url, e);
+                const bar=document.getElementById('rtkBar');
+                if(bar) { bar.textContent='RTK: błąd połączenia'; bar.className='rtk-bar rtk-unknown'; }
+                lastErrShown=now;
+            }
+            return {error:e.message};
+        }
+    }
         function updStatus(p){
             const bar=document.getElementById('rtkBar');
             if(!p||p.error){
