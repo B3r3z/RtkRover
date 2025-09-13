@@ -9,7 +9,9 @@ header.app-header h1 { font-size:18px; margin:0; font-weight:600; letter-spacing
 .badge-float { background:#c98500; color:#111; }
 .badge-gps { background:#264a85; color:#fff; }
 .badge-error { background:#b30021; color:#fff; }
-main.layout { flex:1; display:flex; min-height:0; overflow:hidden; }
+main.layout { flex:1; display:grid; grid-template-columns:300px 1fr; min-height:0; overflow:hidden; }
+.sidebar { grid-column:1; }
+.map-container { grid-column:2; }
 .sidebar { width:300px; background:#1a1c1d; border-right:1px solid #333; padding:12px 14px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
 .panel h2 { font-size:14px; font-weight:600; margin-bottom:8px; letter-spacing:.5px; }
 .panel { background:#202325; padding:10px 12px; border:1px solid #2c2f31; border-radius:6px; }
@@ -44,8 +46,8 @@ html, body { width:100%; }
 .waypoint-item button { padding:4px 6px; font-size:11px; }
 .waypoint-item .coord { font-family:monospace; color:#9fb0c9; }
 footer.app-footer { background:#1d1f20; color:#555; font-size:11px; padding:6px 12px; text-align:right; border-top:1px solid #222; }
-@media (max-width:900px){ .sidebar { width:250px; } }
-@media (max-width:700px){ main.layout { flex-direction:column; } .sidebar { width:100%; order:2; } .map-container { order:1; height:60vh; } }
+@media (max-width:900px){ main.layout { grid-template-columns:260px 1fr; } }
+@media (max-width:700px){ main.layout { grid-template-columns:1fr; grid-template-rows:auto 1fr; } .sidebar { grid-column:1; order:2; } .map-container { grid-column:1; order:1; height:60vh; } }
 
 .sat-count {
   min-width: 20px;
