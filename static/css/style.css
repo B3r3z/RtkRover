@@ -23,6 +23,15 @@ button.danger { background:#7d1626; border-color:#941a2c; }
 button.danger:hover { background:#8f1b30; }
 .map-container { flex:1; position:relative; }
 #map { position:absolute; inset:0; z-index:0; }
+.rtk-bar { height:18px; font-size:11px; letter-spacing:.5px; display:flex; align-items:center; padding:0 10px; background:#333; border-bottom:1px solid #222; font-weight:500; }
+.rtk-bar.rtk-fixed { background:#0a8f3d; }
+.rtk-bar.rtk-float { background:#c98500; color:#111; }
+.rtk-bar.rtk-dgps { background:#264a85; }
+.rtk-bar.rtk-single { background:#444; }
+.rtk-bar.rtk-nofix { background:#741a26; }
+.rtk-bar.rtk-unknown { background:#333; }
+main.layout { height:100%; }
+html, body { width:100%; }
 .waypoint-actions { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
 .waypoint-actions input { flex:1 1 140px; background:#141617; border:1px solid #333; color:#eee; padding:6px 8px; border-radius:4px; font-size:12px; }
 .waypoints { list-style:none; display:flex; flex-direction:column; gap:4px; max-height:220px; overflow:auto; font-size:12px; }
