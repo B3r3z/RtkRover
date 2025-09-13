@@ -1,239 +1,57 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RTK ROVER - GPS Tracking</title>
-    
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" 
-          crossorigin="" />
-    
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
-    
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    
-    <!-- Debug console for development -->
-    <style>
-        #debug-console {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 300px;
-            height: 200px;
-            background: rgba(0,0,0,0.8);
-            color: #0f0;
-            font-family: monospace;
-            font-size: 11px;
-            padding: 10px;
-            overflow-y: auto;
-            z-index: 10000;
-            border: 2px solid #333;
-            display: none;
-        }
-        .debug-visible #debug-console {
-            display: block;
-        }
-    </style>
-</head>
-<body>
-    <div class="app">
-        
-        <!-- Top Status Bar -->
-        <div class="status-bar">
-            <div class="status-main">
-                <div class="rover-title">
-                    <span class="rover-icon">🛸</span>
-                    <h1>RTK ROVER</h1>
-                </div>
-                
-                <div class="position-display">
-                    <span class="position-label">POZYCJA</span>
-                    <span id="coordinates" class="position-coords">---.------ , ---.------</span>
-                </div>
-                
-                <div class="rtk-badge-container">
-                    <div id="rtk-status-badge" class="rtk-badge no-fix">
-                        <span id="rtk-status-text">ŁĄCZENIE...</span>
-                    </div>
-                </div>
+    <!DOCTYPE html>
+    <html lang="pl">
+    <head>
+        <meta charset="UTF-8" />
+        <title>RTK Rover</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin />
+        <link rel="stylesheet" href="/static/css/style.css" />
+    </head>
+    <body>
+        <header class="app-header">
+            <h1>RTK Rover</h1>
+            <div class="status-bar">
+                <span id="statusMode" class="badge">--</span>
+                <span id="statusFix" class="badge">--</span>
+                <span id="statusSat" class="badge">Sats: --</span>
+                <span id="statusHdop" class="badge">HDOP: --</span>
             </div>
-            
-            <div class="connections-grid">
-                <div class="connection-pill">
-                    <div id="gps-dot" class="conn-dot"></div>
-                    <span>GPS</span>
-                </div>
-                <div class="connection-pill">
-                    <div id="ntrip-dot" class="conn-dot"></div>
-                    <span>NTRIP</span>
-                </div>
-                <div class="connection-pill">
-                    <div id="satellites-count" class="sat-count">--</div>
-                    <span>SAT</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Map Section -->
-        <div class="map-section">
-            <!-- Map Container -->
-            <div class="map-wrapper">
-                <div id="map" class="map-canvas"></div>
-                
-                <!-- Map Controls Overlay -->
-                <div class="map-controls">
-                    <button id="follow-btn" class="control-btn follow-btn active" 
-                            title="Śledzenie rover-a" 
-                            aria-label="Włącz/wyłącz śledzenie pozycji rover-a"
-                            aria-pressed="true">
-                        <span class="btn-icon" aria-hidden="true">📍</span>
-                        <span class="btn-text">ŚLEDŹ</span>
-                    </button>
-                    
-                    <button id="track-btn" class="control-btn track-btn" 
-                            title="Nagrywanie ścieżki"
-                            aria-label="Rozpocznij/zatrzymaj nagrywanie ścieżki"
-                            aria-pressed="false">
-                        <span class="btn-icon" aria-hidden="true">🛤️</span>
-                        <span class="btn-text">ŚLAD</span>
-                    </button>
-                    
-                    <button id="clear-btn" class="control-btn clear-btn" 
-                            title="Wyczyść ścieżkę"
-                            aria-label="Wyczyść zapisaną ścieżkę">
-                        <span class="btn-icon" aria-hidden="true">🗑️</span>
-                        <span class="btn-text">WYCZYŚĆ</span>
-                    </button>
-                    
-                    <button id="debug-btn" class="control-btn debug-btn" 
-                            title="Console Debug"
-                            aria-label="Pokaż/ukryj console debug">
-                        <span class="btn-icon" aria-hidden="true">🐛</span>
-                        <span class="btn-text">DEBUG</span>
-                    </button>
-                    
-                    <button id="precision-btn" class="control-btn precision-btn" 
-                            title="Tryb precyzyjny RTK"
-                            aria-label="Przełącz tryb widoku precyzyjnego dla RTK Fixed"
-                            aria-pressed="false">
-                        <span class="btn-icon" aria-hidden="true">🎯</span>
-                        <span class="btn-text">PRECYZJA</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bottom Info Panel -->
-        <div class="info-panel">
-            <div class="info-grid">
-                
-                <!-- RTK Status Card -->
-                <div class="info-card rtk-card">
-                    <div class="card-header">
-                        <span class="card-icon">🎯</span>
-                        <h3>STATUS RTK</h3>
+        </header>
+        <main class="layout">
+            <aside class="sidebar" id="sidebar">
+                <section class="panel">
+                    <h2>Pozycja</h2>
+                    <div class="pos-line">Lat: <span id="lat">--</span></div>
+                    <div class="pos-line">Lon: <span id="lon">--</span></div>
+                    <div class="pos-line">Alt: <span id="alt">--</span> m</div>
+                    <div class="pos-line">Czas: <span id="time">--</span></div>
+                    <div class="actions">
+                        <button id="btnCenter">Centruj</button>
+                        <button id="btnPrecision">Precyzja</button>
+                        <button id="btnClearTrack">Czyść ślad</button>
                     </div>
-                    <div class="card-content">
-                        <div class="stat-row">
-                            <span class="stat-label">Fix Status</span>
-                            <span id="rtk-fix-status" class="stat-value">--</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">Dokładność</span>
-                            <span id="hdop" class="stat-value">--</span>
-                        </div>
+                </section>
+                <section class="panel">
+                    <h2>Punkty</h2>
+                    <div class="waypoint-actions">
+                        <input id="wpName" type="text" placeholder="Nazwa punktu" />
+                        <button id="btnAddWp">Dodaj</button>
+                        <button id="btnExportWp">Export</button>
+                        <button id="btnClearWp">Czyść</button>
                     </div>
-                </div>
-
-                <!-- GPS Data Card -->
-                <div class="info-card gps-card">
-                    <div class="card-header">
-                        <span class="card-icon">📡</span>
-                        <h3>DANE GPS</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="stat-row">
-                            <span class="stat-label">Prędkość</span>
-                            <span id="speed" class="stat-value">-- węzłów</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">Kierunek</span>
-                            <span id="heading" class="stat-value">--°</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Track Data Card -->
-                <div class="info-card track-card">
-                    <div class="card-header">
-                        <span class="card-icon">📊</span>
-                        <h3>ŚLAD</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="stat-row">
-                            <span class="stat-label">Punkty</span>
-                            <span id="track-points" class="stat-value">0</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">Sesja</span>
-                            <span id="session-id" class="stat-value">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- System Status Card -->
-                <div class="info-card system-card">
-                    <div class="card-header">
-                        <span class="card-icon">⚡</span>
-                        <h3>SYSTEM</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="stat-row">
-                            <span class="stat-label">Status</span>
-                            <span id="system-status" class="stat-value">--</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="stat-label">Update</span>
-                            <span id="last-update" class="stat-value">--</span>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- Hidden elements for compatibility -->
-        <div style="display: none;">
-            <span id="gps-status"></span>
-            <span id="ntrip-status"></span>
-            <span id="rtk-fix-indicator"></span>
-            <span id="satellites"></span>
-            <span id="hdop-warning"></span>
-            <span id="signal-quality"></span>
-            <span id="status-dot"></span>
-            <span id="status-text"></span>
-            <span id="rtk-fix-badge"></span>
-        </div>
-
-    </div>
-
-    <!-- Debug Console -->
-    <div id="debug-console">
-        <div style="color: #ff0; margin-bottom: 5px;">RTK ROVER DEBUG CONSOLE</div>
-        <div id="debug-log"></div>
-    </div>
-
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" 
-            crossorigin=""></script>
-    
+                    <ul id="waypointList" class="waypoints"></ul>
+                </section>
+            </aside>
+            <div id="map" class="map-container"></div>
+        </main>
+        <footer class="app-footer">&copy; Rover RTK</footer>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+        <script src="/static/js/map.js"></script>
+    </body>
+    </html>
     <!-- Original JS -->
     <script src="{{ url_for('static', filename='js/map.js') }}"></script>
     
