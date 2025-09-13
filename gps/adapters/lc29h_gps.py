@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 class LC29HGPS(GPS):
     BAUDRATES = [115200, 38400, 9600]
-    PQTM_DISABLE_ALL = b"$PQTMGNSSMSG,0,0,0,0,0,0*2A\r\n"
-    PQTM_ENABLE_GGA = b"$PQTMGNSSMSG,1,0,0,0,0,0*2B\r\n"
+    # Updated PQTM commands for LC29H(DA) - correct format
+    PQTM_DISABLE_ALL = b"$PQTMGNSSMSG,W,0,0,0,0,0,0*20\r\n"
+    PQTM_ENABLE_GGA = b"$PQTMGNSSMSG,W,1,0,0,0,0,0*21\r\n"  # Only GGA enabled
     PQTM_SAVE = b"$PQTMSAVEPAR*53\r\n"
     
     def __init__(self, port: str):
@@ -68,18 +69,58 @@ class LC29HGPS(GPS):
             return
             
         logger.info("🔧 Configuring LC29H with PQTM commands...")
-        commands = [
-            (self.PQTM_DISABLE_ALL, "Disabling all NMEA messages"),
-            (self.PQTM_ENABLE_GGA, "Enabling GGA messages only"), 
-            (self.PQTM_SAVE, "Saving configuration to flash")
-        ]
         
-        for cmd, description in commands:
-            logger.debug(f"🔧 {description}: {cmd.decode('ascii').strip()}")
-            self.serial_conn.write(cmd)
-            self.serial_conn.flush()
-            time.sleep(1.0)
+        # First, disable all NMEA messages
+        logger.info("🔧 Step 1: Disabling all NMEA messages")
+        self.serial_conn.write(self.PQTM_DISABLE_ALL)
+        self.serial_conn.flush()
+        time.sleep(2.0)
+        
+        # Enable only GGA messages
+        logger.info("🔧 Step 2: Enabling GGA messages only")
+        self.serial_conn.write(self.PQTM_ENABLE_GGA)
+        self.serial_conn.flush()
+        time.sleep(2.0)
+        
+        # Save configuration to flash
+        logger.info("🔧 Step 3: Saving configuration to flash")
+        self.serial_conn.write(self.PQTM_SAVE)
+        self.serial_conn.flush()
+        time.sleep(2.0)
+        
+        # Clear any pending data in buffer
+        if self.serial_conn.in_waiting > 0:
+            discarded = self.serial_conn.read(self.serial_conn.in_waiting)
+            logger.debug(f"🔧 Discarded {len(discarded)} bytes of pending data")
+        
         logger.info("✅ LC29H configured for GGA-only output")
+        
+        # Test if configuration worked by checking message types for a few seconds
+        logger.info("🔧 Testing configuration...")
+        test_start = time.time()
+        message_types = set()
+        
+        while time.time() - test_start < 5.0 and len(message_types) < 10:
+            if self.serial_conn.in_waiting > 0:
+                try:
+                    data = self.serial_conn.readline().decode('ascii', errors='ignore').strip()
+                    if data.startswith('$') and ',' in data:
+                        msg_type = data.split(',')[0][1:]  # Extract message type without $
+                        message_types.add(msg_type)
+                except:
+                    pass
+            time.sleep(0.1)
+        
+        if message_types:
+            logger.info(f"🔧 Detected message types after config: {sorted(message_types)}")
+            if len(message_types) == 1 and 'GNGGA' in message_types:
+                logger.info("✅ Configuration successful - only GGA messages detected")
+            elif 'GNGGA' in message_types and len(message_types) <= 3:
+                logger.warning(f"⚠️ Partial success - GGA + {len(message_types)-1} other types")
+            else:
+                logger.warning(f"❌ Configuration may have failed - {len(message_types)} message types detected")
+        else:
+            logger.warning("🔧 No NMEA messages detected during test - may be normal")
     
     def read_position(self) -> Optional[Position]:
         if not self.nmea_reader or not self.serial_conn:
@@ -88,8 +129,6 @@ class LC29HGPS(GPS):
         try:
             raw_data, parsed_data = self.nmea_reader.read()
             if raw_data and parsed_data:
-                # DEBUG: Log that we're reading from GPS
-                logger.info(f"🔧 GPS READ attempt: got {parsed_data.msgID if hasattr(parsed_data, 'msgID') else 'UNKNOWN'}")
                 return self._parse_position(parsed_data)
         except Exception as e:
             logger.debug(f"Read error: {e}")
@@ -101,24 +140,20 @@ class LC29HGPS(GPS):
             
         msg_type = nmea_msg.msgID
         
-        logger.info(f"🔧 Parsing NMEA message type: {msg_type}")
-        
-        # Optimized: Only process important messages, reduce logging overhead
+        # Only process important messages
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
-            result = self._parse_gga(nmea_msg)
-            logger.info(f"🔧 GGA parsing result: {'SUCCESS' if result else 'FAILED'}")
-            return result
+            return self._parse_gga(nmea_msg)
         elif msg_type == 'GLL':
             # Only use GLL as fallback if no recent GGA
             if time.time() - self._last_gga_time > 5.0:
                 logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
                 return self._parse_gll(nmea_msg)
         elif msg_type in ['GSA', 'GSV', 'RMC', 'VTG']:
-            # Common NMEA messages - no logging to reduce noise
+            # Common NMEA messages - silently ignore
             pass
         else:
-            # Only log unknown messages occasionally to reduce noise
+            # Log unknown messages occasionally
             logger.debug(f"📡 Unknown NMEA message type: {msg_type}")
         return None
     
@@ -138,9 +173,6 @@ class LC29HGPS(GPS):
             try:
                 lat = float(gga.lat)
                 lon = float(gga.lon)
-                
-                # Show high-precision coordinates to detect micro-movements
-                logger.info(f"🎯 GGA COORDS: lat={lat:.8f}, lon={lon:.8f}")
                 
             except (ValueError, TypeError) as e:
                 logger.warning(f"📡 GGA: Invalid lat/lon format - lat={gga.lat}, lon={gga.lon}: {e}")
