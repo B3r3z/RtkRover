@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from datetime import datetime
 import logging
 import threading
@@ -352,6 +352,65 @@ def _register_routes(app):
                 "error": "Failed to retrieve tracks",
                 "tracks": []
             }), 500
+
+    # Navigation API endpoints
+    
+    @app.route('/api/navigation/status')
+    def api_nav_status():
+        """Get navigation system status"""
+        try:
+            from rover_manager import RoverManager
+            # This assumes rover_manager is initialized globally
+            # You'll need to integrate this properly
+            return jsonify({
+                "message": "Navigation API not yet integrated",
+                "todo": "Initialize RoverManager in app_manager"
+            }), 501
+        except Exception as e:
+            logger.error(f"Navigation status error: {e}")
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/waypoint', methods=['POST'])
+    def api_add_waypoint():
+        """Add navigation waypoint"""
+        try:
+            data = request.get_json()
+            lat = data.get('lat')
+            lon = data.get('lon')
+            name = data.get('name', 'Waypoint')
+            
+            if lat is None or lon is None:
+                return jsonify({"error": "lat and lon required"}), 400
+            
+            # TODO: Integrate with RoverManager
+            return jsonify({
+                "message": "Waypoint API not yet integrated",
+                "waypoint": {"lat": lat, "lon": lon, "name": name}
+            }), 501
+            
+        except Exception as e:
+            logger.error(f"Add waypoint error: {e}")
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/start', methods=['POST'])
+    def api_start_navigation():
+        """Start autonomous navigation"""
+        try:
+            # TODO: Integrate with RoverManager
+            return jsonify({"message": "Navigation start not yet integrated"}), 501
+        except Exception as e:
+            logger.error(f"Start navigation error: {e}")
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/stop', methods=['POST'])
+    def api_stop_navigation():
+        """Stop autonomous navigation"""
+        try:
+            # TODO: Integrate with RoverManager
+            return jsonify({"message": "Navigation stop not yet integrated"}), 501
+        except Exception as e:
+            logger.error(f"Stop navigation error: {e}")
+            return jsonify({"error": str(e)}), 500
 
 def get_rtk_manager():
     """Get global RTK manager instance - deprecated, use app_manager instead"""

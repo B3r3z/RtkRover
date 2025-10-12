@@ -15,6 +15,10 @@ requests==2.31.0
 # Configuration Management
 python-dotenv==1.0.0
 
+# GPIO for Raspberry Pi (motor control)
+# Only needed on Raspberry Pi
+# RPi.GPIO==0.7.1
+
 # Development and Quality Tools (optional)
 # black==23.12.1
 # flake8==7.0.0
