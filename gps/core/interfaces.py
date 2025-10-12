@@ -22,6 +22,8 @@ class Position:
     hdop: float
     rtk_status: RTKStatus
     timestamp: str
+    speed: Optional[float] = None      # prędkość w węzłach (knots)
+    heading: Optional[float] = None    # kurs w stopniach (0-360)
 
 @dataclass
 class RTKStats:

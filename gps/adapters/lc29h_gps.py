@@ -10,12 +10,6 @@ logger = logging.getLogger(__name__)
 
 class LC29HGPS(GPS):
     BAUDRATES = [115200, 38400, 9600]
-    # Updated PQTM commands for LC29H(DA) - correct format
-    PQTM_DISABLE_ALL = b"$PQTMGNSSMSG,W,0,0,0,0,0,0*20\r\n"
-    PQTM_ENABLE_GGA = b"$PQTMGNSSMSG,W,1,0,0,0,0,0*21\r\n"  # Only GGA enabled
-    PQTM_SAVE = b"$PQTMSAVEPAR*53\r\n"
-    # PAIR062 commands (per user spec) for granular NMEA control
-    # Format already includes correct checksums provided by user
     PAIR_ENABLE_GGA_1HZ = b"$PAIR062,0,1*3E\r\n"  # Enable GGA (type 0) output
     PAIR_DISABLE_GLL = b"$PAIR062,1,0*3F\r\n"     # Disable GLL (type 1)
     PAIR_DISABLE_GSA = b"$PAIR062,2,0*3C\r\n"     # Disable GSA (type 2)
@@ -124,15 +118,6 @@ class LC29HGPS(GPS):
             logger.warning(f"⚠️ PAIR062 partial success: extra types {seen_types - {t for t in seen_types if t.endswith('GGA')}}")
         else:
             logger.warning("❌ PAIR062 failed to restrict output to GGA. Falling back to PQTM method...")
-
-        # Fallback PQTM approach
-        logger.info("🔧 Fallback: disabling all via PQTM then enabling GGA")
-        try:
-            self.serial_conn.write(self.PQTM_DISABLE_ALL); self.serial_conn.flush(); time.sleep(1.0)
-            self.serial_conn.write(self.PQTM_ENABLE_GGA); self.serial_conn.flush(); time.sleep(1.0)
-            self.serial_conn.write(self.PQTM_SAVE); self.serial_conn.flush(); time.sleep(0.5)
-        except Exception as e:
-            logger.error(f"❌ PQTM fallback failed: {e}")
 
         # Re-verify after fallback
         verify_start = time.time()

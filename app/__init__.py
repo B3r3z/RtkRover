@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 import os
+import atexit
 from gps.rtk_manager import RTKManager
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,49 @@ class RTKApplicationManager:
 # Global application manager instance
 app_manager = RTKApplicationManager()
 
+# Global rover manager (lazy initialized)
+_rover_manager_instance = None
+_rover_init_lock = threading.Lock()
+
+def get_rover_manager():
+    """
+    Get or initialize rover manager
+    Thread-safe lazy initialization
+    """
+    global _rover_manager_instance
+    
+    if _rover_manager_instance is not None:
+        return _rover_manager_instance
+    
+    with _rover_init_lock:
+        if _rover_manager_instance is not None:
+            return _rover_manager_instance
+        
+        try:
+            # Import here to avoid circular dependencies
+            from rover_manager_singleton import global_rover_manager
+            
+            # Initialize with RTK manager
+            rtk_manager = app_manager.get_rtk_manager()
+            if rtk_manager:
+                logger.info("Initializing Rover Manager...")
+                _rover_manager_instance = global_rover_manager.initialize(rtk_manager)
+                
+                if _rover_manager_instance:
+                    logger.info("✅ Rover Manager initialized successfully")
+                else:
+                    logger.warning("⚠️ Rover Manager initialization returned None")
+            else:
+                logger.warning("⚠️ RTK Manager not available, cannot initialize Rover")
+        
+        except ImportError as e:
+            logger.warning(f"Rover Manager not available (modules not found): {e}")
+            logger.info("This is expected if navigation/motor_control modules are not installed")
+        except Exception as e:
+            logger.error(f"Failed to initialize Rover Manager: {e}", exc_info=True)
+    
+    return _rover_manager_instance
+
 def create_app():
     """Flask application factory with enhanced security and error handling"""
     app = Flask(__name__, 
@@ -109,6 +153,21 @@ def create_app():
     
     # Initialize RTK system
     app_manager.get_rtk_manager()
+    
+    # Register cleanup handler
+    def cleanup():
+        """Cleanup on application shutdown"""
+        logger.info("Application shutting down...")
+        try:
+            rover = get_rover_manager()
+            if rover:
+                from rover_manager_singleton import global_rover_manager
+                global_rover_manager.shutdown()
+                logger.info("Rover Manager shut down")
+        except Exception as e:
+            logger.error(f"Error during Rover shutdown: {e}")
+    
+    atexit.register(cleanup)
     
     # Register routes with error handling
     _register_routes(app)
@@ -353,63 +412,326 @@ def _register_routes(app):
                 "tracks": []
             }), 500
 
-    # Navigation API endpoints
+    # ==========================================
+    # NAVIGATION & MOTOR CONTROL API
+    # ==========================================
+    
+    @app.route('/api/rover/test')
+    def api_rover_test():
+        """Test rover system availability"""
+        try:
+            rover = get_rover_manager()
+            if rover:
+                status = rover.get_rover_status()
+                return jsonify({
+                    "status": "ok",
+                    "message": "Rover system operational",
+                    "rover_running": status.get('is_running', False)
+                })
+            return jsonify({
+                "status": "unavailable",
+                "message": "Rover system not initialized (navigation/motor modules may not be installed)"
+            }), 503
+        except Exception as e:
+            logger.error(f"Rover test error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
     
     @app.route('/api/navigation/status')
     def api_nav_status():
-        """Get navigation system status"""
+        """Get comprehensive navigation status"""
         try:
-            from rover_manager import RoverManager
-            # This assumes rover_manager is initialized globally
-            # You'll need to integrate this properly
-            return jsonify({
-                "message": "Navigation API not yet integrated",
-                "todo": "Initialize RoverManager in app_manager"
-            }), 501
+            rover = get_rover_manager()
+            
+            if not rover:
+                return jsonify({
+                    "error": "Rover system not initialized",
+                    "is_running": False,
+                    "available": False
+                }), 503
+            
+            status = rover.get_rover_status()
+            return jsonify(status)
+            
         except Exception as e:
-            logger.error(f"Navigation status error: {e}")
+            logger.error(f"Navigation status error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
     
     @app.route('/api/navigation/waypoint', methods=['POST'])
     def api_add_waypoint():
-        """Add navigation waypoint"""
+        """Add navigation waypoint to queue"""
         try:
             data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
             lat = data.get('lat')
             lon = data.get('lon')
-            name = data.get('name', 'Waypoint')
+            name = data.get('name', f"WP_{datetime.now().strftime('%H%M%S')}")
             
             if lat is None or lon is None:
-                return jsonify({"error": "lat and lon required"}), 400
+                return jsonify({"error": "lat and lon are required"}), 400
             
-            # TODO: Integrate with RoverManager
+            # Validate and convert
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
+                return jsonify({"error": "lat and lon must be valid numbers"}), 400
+            
+            # Validate ranges
+            if not (-90.0 <= lat <= 90.0):
+                return jsonify({"error": "lat must be between -90 and 90"}), 400
+            if not (-180.0 <= lon <= 180.0):
+                return jsonify({"error": "lon must be between -180 and 180"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            if rover.add_waypoint(lat, lon, name):
+                return jsonify({
+                    "success": True,
+                    "message": f"Waypoint '{name}' added to queue",
+                    "waypoint": {"lat": lat, "lon": lon, "name": name}
+                })
+            else:
+                return jsonify({"error": "Failed to add waypoint"}), 500
+            
+        except Exception as e:
+            logger.error(f"Add waypoint error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/waypoints', methods=['GET'])
+    def api_get_waypoints():
+        """Get all waypoints in queue"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"waypoints": [], "error": "Rover not initialized"}), 503
+            
+            waypoints = rover.get_waypoints()
+            return jsonify({"waypoints": waypoints, "count": len(waypoints)})
+            
+        except Exception as e:
+            logger.error(f"Get waypoints error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/waypoints', methods=['DELETE'])
+    def api_clear_waypoints():
+        """Clear all waypoints from queue"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.clear_waypoints()
+            return jsonify({"success": True, "message": "All waypoints cleared"})
+            
+        except Exception as e:
+            logger.error(f"Clear waypoints error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/goto', methods=['POST'])
+    def api_goto_waypoint():
+        """Navigate to single waypoint (replaces queue)"""
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            lat = data.get('lat')
+            lon = data.get('lon')
+            name = data.get('name', 'Target')
+            
+            if lat is None or lon is None:
+                return jsonify({"error": "lat and lon are required"}), 400
+            
+            try:
+                lat = float(lat)
+                lon = float(lon)
+            except (ValueError, TypeError):
+                return jsonify({"error": "lat and lon must be valid numbers"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            if rover.go_to_waypoint(lat, lon, name):
+                return jsonify({
+                    "success": True,
+                    "message": f"Navigating to {name}",
+                    "target": {"lat": lat, "lon": lon, "name": name}
+                })
+            else:
+                return jsonify({"error": "Failed to set navigation target"}), 500
+            
+        except Exception as e:
+            logger.error(f"Go to waypoint error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/path', methods=['POST'])
+    def api_follow_path():
+        """Follow path of multiple waypoints"""
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            waypoints = data.get('waypoints', [])
+            
+            if not waypoints:
+                return jsonify({"error": "No waypoints provided"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            # Convert to tuples and validate
+            wp_tuples = []
+            for i, wp in enumerate(waypoints):
+                if not isinstance(wp, dict):
+                    return jsonify({"error": f"Waypoint {i} must be an object"}), 400
+                
+                if 'lat' not in wp or 'lon' not in wp:
+                    return jsonify({"error": f"Waypoint {i} missing lat or lon"}), 400
+                
+                try:
+                    lat = float(wp['lat'])
+                    lon = float(wp['lon'])
+                    wp_tuples.append((lat, lon))
+                except (ValueError, TypeError):
+                    return jsonify({"error": f"Waypoint {i} has invalid coordinates"}), 400
+            
+            if rover.follow_path(wp_tuples):
+                return jsonify({
+                    "success": True,
+                    "message": f"Following path with {len(wp_tuples)} waypoints",
+                    "waypoint_count": len(wp_tuples)
+                })
+            else:
+                return jsonify({"error": "Failed to set path"}), 500
+            
+        except Exception as e:
+            logger.error(f"Follow path error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/pause', methods=['POST'])
+    def api_pause_navigation():
+        """Pause navigation (motors stop, waypoints retained)"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.pause_navigation()
+            return jsonify({"success": True, "message": "Navigation paused"})
+            
+        except Exception as e:
+            logger.error(f"Pause navigation error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/resume', methods=['POST'])
+    def api_resume_navigation():
+        """Resume paused navigation"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.resume_navigation()
+            return jsonify({"success": True, "message": "Navigation resumed"})
+            
+        except Exception as e:
+            logger.error(f"Resume navigation error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/cancel', methods=['POST'])
+    def api_cancel_navigation():
+        """Cancel current navigation (clear waypoints, stop motors)"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.cancel_navigation()
+            return jsonify({"success": True, "message": "Navigation cancelled"})
+            
+        except Exception as e:
+            logger.error(f"Cancel navigation error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/emergency_stop', methods=['POST'])
+    def api_emergency_stop():
+        """EMERGENCY STOP - immediately halt all movement"""
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.emergency_stop()
+            logger.warning("EMERGENCY STOP activated via API")
             return jsonify({
-                "message": "Waypoint API not yet integrated",
-                "waypoint": {"lat": lat, "lon": lon, "name": name}
-            }), 501
+                "success": True, 
+                "message": "EMERGENCY STOP activated - all motors stopped"
+            })
             
         except Exception as e:
-            logger.error(f"Add waypoint error: {e}")
+            logger.error(f"Emergency stop error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
     
-    @app.route('/api/navigation/start', methods=['POST'])
-    def api_start_navigation():
-        """Start autonomous navigation"""
+    @app.route('/api/motor/speed', methods=['POST'])
+    def api_set_speed():
+        """Set maximum motor speed"""
         try:
-            # TODO: Integrate with RoverManager
-            return jsonify({"message": "Navigation start not yet integrated"}), 501
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            speed = data.get('speed')
+            
+            if speed is None:
+                return jsonify({"error": "speed parameter required"}), 400
+            
+            try:
+                speed = float(speed)
+                if not 0.0 <= speed <= 1.0:
+                    return jsonify({"error": "speed must be between 0.0 and 1.0"}), 400
+            except (ValueError, TypeError):
+                return jsonify({"error": "speed must be a valid number"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.set_max_speed(speed)
+            return jsonify({
+                "success": True,
+                "message": f"Max speed set to {speed:.2f}",
+                "speed": speed
+            })
+            
         except Exception as e:
-            logger.error(f"Start navigation error: {e}")
+            logger.error(f"Set speed error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
     
-    @app.route('/api/navigation/stop', methods=['POST'])
-    def api_stop_navigation():
-        """Stop autonomous navigation"""
+    @app.route('/api/motor/status')
+    def api_motor_status():
+        """Get motor controller status"""
         try:
-            # TODO: Integrate with RoverManager
-            return jsonify({"message": "Navigation stop not yet integrated"}), 501
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            status = rover.get_rover_status()
+            motor_status = status.get('motor_control', {})
+            return jsonify(motor_status)
+            
         except Exception as e:
-            logger.error(f"Stop navigation error: {e}")
+            logger.error(f"Motor status error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
 def get_rtk_manager():

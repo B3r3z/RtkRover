@@ -1,0 +1,245 @@
+# Architektura Systemu RTK Rover - Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           FLASK WEB APPLICATION                              │
+│                           (app/__init__.py)                                  │
+│                                                                              │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐               │
+│  │  Web UI        │  │  REST API      │  │  WebSocket     │               │
+│  │  (templates/)  │  │  /api/*        │  │  (future)      │               │
+│  └────────────────┘  └────────────────┘  └────────────────┘               │
+│         │                    │                    │                         │
+│         └────────────────────┴────────────────────┘                         │
+│                              │                                               │
+└──────────────────────────────┼───────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      GLOBAL ROVER MANAGER (Singleton)                        │
+│                    (rover_manager_singleton.py)                              │
+│                                                                              │
+│    • Thread-safe initialization                                             │
+│    • Lifecycle management                                                   │
+│    • Graceful shutdown                                                      │
+│                                                                              │
+└──────────────────────────────┬───────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ROVER MANAGER                                      │
+│                         (rover_manager.py)                                   │
+│                                                                              │
+│    • Coordinates all subsystems                                             │
+│    • Main control loop                                                      │
+│    • Implements PositionObserver                                            │
+│                                                                              │
+│    ┌────────────────────────────────────────────────────────┐              │
+│    │              CONTROL LOOP (0.5s interval)              │              │
+│    │                                                         │              │
+│    │  1. Get current position from GPS                      │              │
+│    │  2. Update Navigator with position                     │              │
+│    │  3. Get NavigationCommand from Navigator               │              │
+│    │  4. Execute command via MotorController                │              │
+│    │  5. Repeat                                             │              │
+│    └────────────────────────────────────────────────────────┘              │
+│                                                                              │
+└─────┬────────────────────────┬────────────────────────┬─────────────────────┘
+      │                        │                        │
+      │ observes               │ controls               │ controls
+      ▼                        ▼                        ▼
+┌─────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│   RTK MANAGER   │  │     NAVIGATOR       │  │  MOTOR CONTROLLER   │
+│                 │  │                     │  │                     │
+│ • GPS data      │  │ • Path planning     │  │ • Differential      │
+│ • NTRIP client  │  │ • Waypoint queue    │  │   drive control     │
+│ • Position      │  │ • PID controller    │  │ • Safety timeout    │
+│   updates       │  │ • GeoUtils          │  │ • Emergency stop    │
+│                 │  │                     │  │                     │
+└────────┬────────┘  └──────────┬──────────┘  └──────────┬──────────┘
+         │                      │                         │
+         │ Position             │ NavigationCommand       │ DifferentialDrive
+         │ (lat,lon,            │ (speed, turn_rate)      │ (left, right)
+         │  heading,            │                         │
+         │  speed)              │                         │
+         │                      │                         │
+         ▼                      ▼                         ▼
+┌─────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│   RTK SYSTEM    │  │  WAYPOINT MANAGER   │  │   L298N DRIVER      │
+│                 │  │                     │  │                     │
+│ ┌─────────────┐ │  │ • Queue management  │  │ • GPIO control      │
+│ │ LC29H GPS   │ │  │ • Path tracking     │  │ • PWM generation    │
+│ │ (UART)      │ │  │ • Tolerance check   │  │ • Direction ctrl    │
+│ └─────────────┘ │  │                     │  │ • Simulation mode   │
+│ ┌─────────────┐ │  └─────────────────────┘  │                     │
+│ │ NTRIP       │ │                            └──────────┬──────────┘
+│ │ Service     │ │  ┌─────────────────────┐             │
+│ │ (RTCM)      │ │  │  PATH PLANNER       │             │ PWM signals
+│ └─────────────┘ │  │                     │             │
+│                 │  │ • Haversine         │             ▼
+│ • NMEA parsing  │  │ • Bearing calc      │  ┌─────────────────────┐
+│ • RTCM inject   │  │ • Distance calc     │  │   DC MOTORS         │
+│ • Position pub  │  │                     │  │                     │
+│                 │  └─────────────────────┘  │ • Left motor        │
+└─────────────────┘                           │ • Right motor       │
+                                              │                     │
+         ┌─────────────────────┐              │ Differential drive  │
+         │  PID CONTROLLER     │              └─────────────────────┘
+         │                     │
+         │ • Heading control   │
+         │ • Smooth steering   │
+         │ • Anti-oscillation  │
+         └─────────────────────┘
+
+
+DATA FLOW EXAMPLE - Going to Waypoint:
+
+1. User: POST /api/navigation/goto {lat: 52.23, lon: 21.01}
+                    │
+                    ▼
+2. Flask: global_rover_manager.get_rover_manager().go_to_waypoint()
+                    │
+                    ▼
+3. RoverManager: navigator.set_target(waypoint)
+                    │
+                    ▼
+4. [Control Loop Every 0.5s]:
+                    │
+    ┌───────────────┴───────────────┐
+    │                               │
+5. RTKManager: Position update      │
+    lat: 52.229, lon: 21.012        │
+    heading: 45°, speed: 0.0 kn     │
+                    │               │
+                    ▼               │
+6. Navigator: Update position       │
+              Calculate distance: 120m
+              Calculate bearing: 90°
+              Heading error: 45° (need to turn right)
+                    │               │
+                    ▼               │
+7. PID Controller: Process error    │
+              Output turn_rate: 0.3 │
+                    │               │
+                    ▼               │
+8. Navigator: Generate command      │
+              speed: 0.5            │
+              turn_rate: 0.3        │
+                    │               │
+                    ▼               │
+9. MotorController: Convert to diff │
+              left_speed: 0.35      │
+              right_speed: 0.65     │
+                    │               │
+                    ▼               │
+10. L298N Driver: Set GPIO          │
+              Left motor: FWD 35%   │
+              Right motor: FWD 65%  │
+                    │               │
+                    ▼               │
+11. Motors: Turn right while moving │
+                    │               │
+                    └───────────────┘
+                    [Loop continues...]
+
+
+SAFETY MECHANISMS:
+
+┌─────────────────────────────────────────┐
+│ 1. Safety Timeout (2.0s)                │
+│    → No command? Stop motors            │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ 2. Emergency Stop                       │
+│    → Immediate motor halt               │
+│    → Pause navigation                   │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ 3. Command Validation                   │
+│    → Clamp speed: -1.0 to 1.0          │
+│    → Clamp turn: -1.0 to 1.0           │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ 4. GPS Loss Handling                    │
+│    → Stop motors if no position         │
+│    → Status: ERROR                      │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ 5. Thread Safety                        │
+│    → Locks on shared state              │
+│    → Atomic operations                  │
+└─────────────────────────────────────────┘
+
+
+CONFIGURATION HIERARCHY:
+
+.env (Environment Variables)
+    │
+    ▼
+config/settings.py          config/motor_settings.py
+    │                               │
+    ├─ rtk_config                   ├─ motor_gpio_pins
+    ├─ uart_config                  ├─ motor_config
+    └─ gps_config                   ├─ navigation_config
+                                    └─ pid_config
+    │                               │
+    └───────────┬───────────────────┘
+                │
+                ▼
+        RUNTIME CONFIGURATION
+
+
+KEY INTERFACES:
+
+PositionObserver          NavigationInterface         MotorDriverInterface
+    │                            │                           │
+    └─ on_position_update()      ├─ update_position()        ├─ initialize()
+                                 ├─ set_target()             ├─ set_motor()
+                                 ├─ get_command()            ├─ stop_all()
+                                 └─ get_state()              └─ cleanup()
+
+
+EXTENSIBILITY POINTS:
+
+1. New Motor Driver
+   └─ Implement MotorDriverInterface
+      └─ Use in MotorController
+
+2. Advanced Path Planning
+   └─ Extend PathPlanner
+      └─ Use in Navigator
+
+3. Obstacle Avoidance
+   └─ Add sensor modules
+      └─ Integrate in control loop
+
+4. Mission Planning
+   └─ Create MissionManager
+      └─ Coordinate with Navigator
+
+5. Telemetry
+   └─ Add WebSocket support
+      └─ Real-time data streaming
+```
+
+## Stan obecny (po integracji):
+
+✅ GPS RTK System - DZIAŁA
+✅ Navigation System - ZAIMPLEMENTOWANY  
+✅ Motor Control - ZAIMPLEMENTOWANY
+✅ Integration Layer - ZAIMPLEMENTOWANY
+✅ REST API - ZAIMPLEMENTOWANY
+⏳ Web UI - CZĘŚCIOWE (do rozbudowy)
+⏳ Hardware Testing - DO WYKONANIA
+
+## Metryki wydajnościowe:
+
+- **Control Loop:** 0.5s (2 Hz)
+- **GPS Update:** ~1.0s (1 Hz)
+- **Safety Timeout:** 2.0s
+- **Position Accuracy:** 2-3 cm (RTK Fixed)
+- **Navigation Tolerance:** 2.0m (konfigurowalne)
