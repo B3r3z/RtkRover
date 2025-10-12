@@ -33,7 +33,7 @@ try:
         GPIO.output(IN2, GPIO.LOW)
         GPIO.output(IN3, GPIO.HIGH)
         GPIO.output(IN4, GPIO.LOW)
-        pwm.ChangeDutyCycle(50)
+        pwm.ChangeDutyCycle(100)
         pwm_b.ChangeDutyCycle(50)
         sleep(2)
 
