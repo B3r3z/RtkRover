@@ -7,6 +7,7 @@ from datetime import datetime
 
 class NavigationMode(Enum):
     """Navigation operating modes"""
+    IDLE = "idle"
     MANUAL = "manual"
     WAYPOINT = "waypoint"
     PATH_FOLLOWING = "path_following"
