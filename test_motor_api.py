@@ -7,7 +7,7 @@ import requests
 import time
 import sys
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = "http://localhost:5002"
 
 def test_endpoint(name, method, endpoint, data=None):
     """Test single endpoint"""
