@@ -27,7 +27,7 @@ class L298NDriver(MotorDriverInterface):
         """
         self.gpio_pins = gpio_pins
         self.use_gpio = use_gpio
-        self._initialized = False
+        self._initialized = True
         self._pwm_frequency = 1000  # Hz
         self._pwm_objects: Dict[str, any] = {}
         
