@@ -289,3 +289,56 @@ class RoverManager(PositionObserver):
         """Set maximum speed (0.0 to 1.0)"""
         self.motor_controller.set_max_speed(speed)
         logger.info(f"Max speed set to {speed:.2f}")
+    
+    # Direct motor control (for manual operation)
+    
+    def manual_drive(self, left_speed: float, right_speed: float):
+        """
+        Direct motor control (bypasses navigation)
+        
+        Args:
+            left_speed: Left motor speed (-1.0 to 1.0)
+            right_speed: Right motor speed (-1.0 to 1.0)
+        """
+        from motor_control.motor_interface import DifferentialDriveCommand
+        
+        # Validate speeds
+        left_speed = max(-1.0, min(1.0, left_speed))
+        right_speed = max(-1.0, min(1.0, right_speed))
+        
+        command = DifferentialDriveCommand(
+            left_speed=left_speed,
+            right_speed=right_speed
+        )
+        
+        self.motor_controller.execute_differential_command(command)
+        logger.info(f"Manual drive: L={left_speed:.2f}, R={right_speed:.2f}")
+    
+    def manual_move(self, speed: float, turn_rate: float = 0.0):
+        """
+        Manual movement with speed and turn rate
+        
+        Args:
+            speed: Forward/backward speed (-1.0 to 1.0)
+            turn_rate: Turn rate (-1.0 left to 1.0 right)
+        """
+        from navigation.core.data_types import NavigationCommand
+        from datetime import datetime
+        
+        # Validate inputs
+        speed = max(-1.0, min(1.0, speed))
+        turn_rate = max(-1.0, min(1.0, turn_rate))
+        
+        nav_command = NavigationCommand(
+            speed=speed,
+            turn_rate=turn_rate,
+            timestamp=datetime.now()
+        )
+        
+        self.motor_controller.execute_navigation_command(nav_command)
+        logger.info(f"Manual move: speed={speed:.2f}, turn={turn_rate:.2f}")
+    
+    def stop_motors(self):
+        """Stop all motors (does not cancel navigation)"""
+        self.motor_controller.emergency_stop()
+        logger.info("Motors stopped")

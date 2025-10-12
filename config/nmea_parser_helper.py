@@ -137,30 +137,3 @@ class NMEANavigationParser:
         if speed_knots is None:
             return False
         return speed_knots > threshold
-
-
-# Example usage in GPS adapter:
-"""
-from config.nmea_parser_helper import NMEANavigationParser
-
-# In your GPS adapter class:
-def _parse_rmc(self, rmc: NMEAMessage) -> Optional[Position]:
-    # Parse position from RMC (if available)
-    # ...
-    
-    # Add navigation data
-    speed, heading = NMEANavigationParser.parse_rmc_navigation(rmc)
-    
-    position = Position(
-        lat=lat,
-        lon=lon,
-        altitude=altitude,
-        satellites=satellites,
-        hdop=hdop,
-        rtk_status=rtk_status,
-        timestamp=timestamp,
-        speed=speed,        # NEW
-        heading=heading     # NEW
-    )
-    return position
-"""

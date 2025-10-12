@@ -26,7 +26,7 @@ class Navigator(NavigationInterface):
     def __init__(self, 
                  max_speed: float = 1.0,
                  turn_aggressiveness: float = 0.5,
-                 waypoint_tolerance: float = 0.001):
+                 waypoint_tolerance: float = 0.01):
         """
         Initialize navigator
         

@@ -733,6 +733,214 @@ def _register_routes(app):
         except Exception as e:
             logger.error(f"Motor status error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
+    
+    # ==========================================
+    # DIRECT MOTOR CONTROL API
+    # ==========================================
+    
+    @app.route('/api/motor/drive', methods=['POST'])
+    def api_motor_drive():
+        """
+        Direct differential drive control
+        Bypasses navigation - for manual control
+        
+        Body: {
+            "left": -1.0 to 1.0,
+            "right": -1.0 to 1.0
+        }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            left_speed = data.get('left')
+            right_speed = data.get('right')
+            
+            if left_speed is None or right_speed is None:
+                return jsonify({"error": "left and right speeds required"}), 400
+            
+            # Validate and convert
+            try:
+                left_speed = float(left_speed)
+                right_speed = float(right_speed)
+            except (ValueError, TypeError):
+                return jsonify({"error": "Speeds must be valid numbers"}), 400
+            
+            # Validate ranges
+            if not (-1.0 <= left_speed <= 1.0):
+                return jsonify({"error": "left speed must be between -1.0 and 1.0"}), 400
+            if not (-1.0 <= right_speed <= 1.0):
+                return jsonify({"error": "right speed must be between -1.0 and 1.0"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_drive(left_speed, right_speed)
+            
+            return jsonify({
+                "success": True,
+                "message": "Motor command executed",
+                "left": left_speed,
+                "right": right_speed
+            })
+            
+        except Exception as e:
+            logger.error(f"Motor drive error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/move', methods=['POST'])
+    def api_motor_move():
+        """
+        Manual movement with speed and turn
+        
+        Body: {
+            "speed": -1.0 to 1.0 (forward/backward),
+            "turn": -1.0 to 1.0 (left/right) [optional, default: 0]
+        }
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+            
+            speed = data.get('speed')
+            turn_rate = data.get('turn', 0.0)
+            
+            if speed is None:
+                return jsonify({"error": "speed parameter required"}), 400
+            
+            # Validate and convert
+            try:
+                speed = float(speed)
+                turn_rate = float(turn_rate)
+            except (ValueError, TypeError):
+                return jsonify({"error": "speed and turn must be valid numbers"}), 400
+            
+            # Validate ranges
+            if not (-1.0 <= speed <= 1.0):
+                return jsonify({"error": "speed must be between -1.0 and 1.0"}), 400
+            if not (-1.0 <= turn_rate <= 1.0):
+                return jsonify({"error": "turn must be between -1.0 and 1.0"}), 400
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_move(speed, turn_rate)
+            
+            return jsonify({
+                "success": True,
+                "message": "Movement command executed",
+                "speed": speed,
+                "turn": turn_rate
+            })
+            
+        except Exception as e:
+            logger.error(f"Motor move error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/stop', methods=['POST'])
+    def api_motor_stop():
+        """
+        Stop all motors immediately
+        Does NOT cancel navigation - motors will restart if navigation is active
+        Use /api/navigation/emergency_stop to stop navigation AND motors
+        """
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.stop_motors()
+            
+            return jsonify({
+                "success": True,
+                "message": "Motors stopped"
+            })
+            
+        except Exception as e:
+            logger.error(f"Motor stop error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/forward', methods=['POST'])
+    def api_motor_forward():
+        """Quick command: Move forward at specified speed"""
+        try:
+            data = request.get_json() or {}
+            speed = float(data.get('speed', 0.5))
+            speed = max(0.0, min(1.0, speed))
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_move(speed, 0.0)
+            return jsonify({"success": True, "message": f"Moving forward at {speed:.2f}"})
+            
+        except Exception as e:
+            logger.error(f"Forward error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/backward', methods=['POST'])
+    def api_motor_backward():
+        """Quick command: Move backward at specified speed"""
+        try:
+            data = request.get_json() or {}
+            speed = float(data.get('speed', 0.5))
+            speed = max(0.0, min(1.0, speed))
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_move(-speed, 0.0)
+            return jsonify({"success": True, "message": f"Moving backward at {speed:.2f}"})
+            
+        except Exception as e:
+            logger.error(f"Backward error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/left', methods=['POST'])
+    def api_motor_left():
+        """Quick command: Turn left (rotate in place)"""
+        try:
+            data = request.get_json() or {}
+            turn = float(data.get('turn', 0.5))
+            turn = max(0.0, min(1.0, turn))
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_move(0.0, -turn)
+            return jsonify({"success": True, "message": f"Turning left at {turn:.2f}"})
+            
+        except Exception as e:
+            logger.error(f"Turn left error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/motor/right', methods=['POST'])
+    def api_motor_right():
+        """Quick command: Turn right (rotate in place)"""
+        try:
+            data = request.get_json() or {}
+            turn = float(data.get('turn', 0.5))
+            turn = max(0.0, min(1.0, turn))
+            
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            rover.manual_move(0.0, turn)
+            return jsonify({"success": True, "message": f"Turning right at {turn:.2f}"})
+            
+        except Exception as e:
+            logger.error(f"Turn right error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
 
 def get_rtk_manager():
     """Get global RTK manager instance - deprecated, use app_manager instead"""

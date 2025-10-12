@@ -32,7 +32,7 @@ class Waypoint:
     lon: float
     name: Optional[str] = None
     altitude: Optional[float] = None
-    tolerance: float = 2.0  # meters - radius to consider waypoint reached
+    tolerance: float = 0.01  # meters - radius to consider waypoint reached
     speed_limit: Optional[float] = None  # m/s
     timestamp: Optional[datetime] = None
     
