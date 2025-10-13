@@ -5,9 +5,43 @@ import threading
 import time
 import os
 import atexit
+import math
 from gps.rtk_manager import RTKManager
 
 logger = logging.getLogger(__name__)
+
+
+def validate_coordinates(lat, lon):
+    """
+    Validate GPS coordinates
+    
+    Args:
+        lat: Latitude value
+        lon: Longitude value
+    
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
+    """
+    # Type check
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return False, "Coordinates must be numbers"
+    
+    # Range check
+    if not (-90 <= lat <= 90):
+        return False, "Latitude must be between -90 and 90"
+    
+    if not (-180 <= lon <= 180):
+        return False, "Longitude must be between -180 and 180"
+    
+    # NaN/Inf check
+    if math.isnan(lat) or math.isnan(lon):
+        return False, "Invalid coordinate values (NaN)"
+    
+    if math.isinf(lat) or math.isinf(lon):
+        return False, "Invalid coordinate values (Infinity)"
+    
+    return True, None
+
 
 class RTKAppError(Exception):
     """Application-specific error for RTK system"""
@@ -479,11 +513,10 @@ def _register_routes(app):
             except (ValueError, TypeError):
                 return jsonify({"error": "lat and lon must be valid numbers"}), 400
             
-            # Validate ranges
-            if not (-90.0 <= lat <= 90.0):
-                return jsonify({"error": "lat must be between -90 and 90"}), 400
-            if not (-180.0 <= lon <= 180.0):
-                return jsonify({"error": "lon must be between -180 and 180"}), 400
+            # Validate coordinates
+            valid, error = validate_coordinates(lat, lon)
+            if not valid:
+                return jsonify({"error": error, "success": False}), 400
             
             rover = get_rover_manager()
             if not rover:
@@ -554,6 +587,11 @@ def _register_routes(app):
             except (ValueError, TypeError):
                 return jsonify({"error": "lat and lon must be valid numbers"}), 400
             
+            # Validate coordinates
+            valid, error = validate_coordinates(lat, lon)
+            if not valid:
+                return jsonify({"error": error, "success": False}), 400
+            
             rover = get_rover_manager()
             if not rover:
                 return jsonify({"error": "Rover system not initialized"}), 503
@@ -601,9 +639,18 @@ def _register_routes(app):
                 try:
                     lat = float(wp['lat'])
                     lon = float(wp['lon'])
-                    wp_tuples.append((lat, lon))
                 except (ValueError, TypeError):
                     return jsonify({"error": f"Waypoint {i} has invalid coordinates"}), 400
+                
+                # Validate coordinates
+                valid, error = validate_coordinates(lat, lon)
+                if not valid:
+                    return jsonify({
+                        "error": f"Waypoint {i}: {error}",
+                        "success": False
+                    }), 400
+                
+                wp_tuples.append((lat, lon))
             
             if rover.follow_path(wp_tuples):
                 return jsonify({
@@ -941,6 +988,33 @@ def _register_routes(app):
         except Exception as e:
             logger.error(f"Turn right error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/metrics')
+    def api_metrics():
+        """Get comprehensive system metrics and telemetry"""
+        try:
+            rover = get_rover_manager()
+            
+            if not rover:
+                return jsonify({
+                    "error": "Rover not initialized",
+                    "metrics": None
+                }), 503
+            
+            metrics = rover.metrics.to_dict()
+            
+            return jsonify({
+                "success": True,
+                "metrics": metrics,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting metrics: {e}", exc_info=True)
+            return jsonify({
+                "error": str(e),
+                "success": False
+            }), 500
 
 def get_rtk_manager():
     """Get global RTK manager instance - deprecated, use app_manager instead"""

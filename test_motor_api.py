@@ -2,12 +2,30 @@
 """
 Motor Control Test Script
 Tests all motor control endpoints
+
+Usage:
+    python test_motor_api.py                    # localhost:5002
+    python test_motor_api.py 192.168.1.42       # custom host
+    python test_motor_api.py 192.168.1.42:5002  # custom host:port
 """
 import requests
 import time
 import sys
 
-BASE_URL = "http://localhost:5002"
+# Parse command line arguments
+if len(sys.argv) > 1:
+    host_arg = sys.argv[1]
+    if '://' in host_arg:
+        BASE_URL = host_arg
+    elif ':' in host_arg:
+        BASE_URL = f"http://{host_arg}"
+    else:
+        BASE_URL = f"http://{host_arg}:5002"
+else:
+    BASE_URL = "http://localhost:5002"
+
+print(f"🎯 Target: {BASE_URL}")
+print()
 
 def test_endpoint(name, method, endpoint, data=None):
     """Test single endpoint"""

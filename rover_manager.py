@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Optional
 from datetime import datetime
+from queue import Queue, Empty, Full
 
 from gps.core.interfaces import PositionObserver, Position
 from navigation.navigator import Navigator
@@ -14,6 +15,7 @@ from navigation.core.data_types import Waypoint, NavigationMode
 from motor_control.motor_controller import MotorController
 from motor_control.drivers.l298n_driver import L298NDriver
 from config.motor_settings import motor_gpio_pins, motor_config, navigation_config
+from telemetry.metrics import NavigationMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,10 @@ class RoverManager(PositionObserver):
             rtk_manager: RTK GPS manager instance
         """
         self.rtk_manager = rtk_manager
+        
+        # Position update queue for thread-safe GPS updates
+        self._position_queue = Queue(maxsize=10)
+        self._last_processed_position: Optional[Position] = None
         
         # Initialize subsystems
         self.navigator = Navigator(
@@ -58,6 +64,12 @@ class RoverManager(PositionObserver):
         self._stop_control = threading.Event()
         self._is_running = False
         self._update_rate = navigation_config['update_rate']
+        
+        # Emergency stop tracking
+        self._last_emergency_stop: Optional[dict] = None
+        
+        # Telemetry
+        self.metrics = NavigationMetrics()
         
         # Register as GPS position observer
         if self.rtk_manager:
@@ -120,16 +132,34 @@ class RoverManager(PositionObserver):
     def on_position_update(self, position: Position):
         """
         Callback from GPS system when position updates
+        Thread-safe queuing of position updates for processing in control loop
         
         Args:
             position: New GPS position
         """
-        # Extract heading from position if available
-        # You may need to add heading to Position dataclass
+        try:
+            # Try to add position to queue
+            self._position_queue.put_nowait(position)
+            logger.debug(f"Queued position: ({position.lat:.6f}, {position.lon:.6f})")
+        except Full:
+            # Queue full - drop oldest position and add new one
+            try:
+                self._position_queue.get_nowait()
+                self._position_queue.put_nowait(position)
+                logger.warning("Position queue full, dropped oldest position")
+            except Exception as e:
+                logger.error(f"Failed to queue position update: {e}")
+    
+    def _process_position_update(self, position: Position):
+        """
+        Process a single position update from the queue
+        
+        Args:
+            position: GPS position to process
+        """
         heading = getattr(position, 'heading', None)
         speed = getattr(position, 'speed', None)
         
-        # Update navigator with new position
         self.navigator.update_position(
             lat=position.lat,
             lon=position.lon,
@@ -137,18 +167,92 @@ class RoverManager(PositionObserver):
             speed=speed
         )
         
-        logger.debug(f"Position updated: ({position.lat:.6f}, {position.lon:.6f})")
+        logger.debug(f"Processed position: ({position.lat:.6f}, {position.lon:.6f})")
+    
+    def _check_gps_health(self) -> tuple[bool, str]:
+        """
+        Check GPS health and quality
+        
+        Returns:
+            tuple: (is_healthy: bool, error_message: str)
+        """
+        if not self.rtk_manager:
+            return False, "RTK Manager not available"
+        
+        position = self.rtk_manager.get_current_position()
+        
+        if not position:
+            return False, "No GPS position available"
+        
+        # Check satellite count
+        satellites = position.get('satellites', 0)
+        if satellites < 4:
+            return False, f"Insufficient satellites: {satellites}"
+        
+        # Check HDOP (Horizontal Dilution of Precision)
+        hdop = position.get('hdop', 999)
+        if hdop > 5.0:
+            return False, f"Poor GPS accuracy (HDOP: {hdop:.1f})"
+        
+        # Check timestamp freshness
+        timestamp_str = position.get('timestamp')
+        if timestamp_str:
+            try:
+                from datetime import timezone
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                age = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                if age > 3.0:
+                    return False, f"GPS data too old: {age:.1f}s"
+            except Exception as e:
+                logger.warning(f"Could not parse GPS timestamp: {e}")
+        
+        return True, ""
     
     def _control_loop(self):
         """
-        Main control loop
+        Main control loop with GPS health monitoring
         Runs at regular intervals to generate and execute navigation commands
         """
         logger.info("Control loop started")
+        consecutive_errors = 0
+        max_consecutive_errors = 3
         
         while not self._stop_control.wait(timeout=self._update_rate):
             try:
-                # Get navigation command
+                # Process all pending position updates
+                positions_processed = 0
+                while not self._position_queue.empty():
+                    try:
+                        position = self._position_queue.get_nowait()
+                        self._process_position_update(position)
+                        self._last_processed_position = position
+                        positions_processed += 1
+                    except Empty:
+                        break
+                    except Exception as e:
+                        logger.error(f"Error processing position update: {e}")
+                
+                if positions_processed > 1:
+                    logger.debug(f"Processed {positions_processed} position updates in this cycle")
+                
+                # 1. Check GPS health
+                gps_healthy, gps_error = self._check_gps_health()
+                if not gps_healthy:
+                    logger.warning(f"GPS unhealthy: {gps_error}")
+                    self.motor_controller.emergency_stop()
+                    self.metrics.add_gps_loss_event()
+                    consecutive_errors += 1
+                    
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error(f"GPS unhealthy for {consecutive_errors} cycles, pausing navigation")
+                        self.navigator.pause()
+                        consecutive_errors = 0
+                    
+                    continue
+                else:
+                    consecutive_errors = 0
+                
+                # 2. Get navigation command
                 nav_command = self.navigator.get_navigation_command()
                 
                 if nav_command:
@@ -160,11 +264,28 @@ class RoverManager(PositionObserver):
                 
             except Exception as e:
                 logger.error(f"Error in control loop: {e}", exc_info=True)
+                consecutive_errors += 1
+                
                 # Safety: stop motors on error
                 try:
                     self.motor_controller.emergency_stop()
                 except:
                     pass
+                
+                # Too many errors - stop navigation
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.critical("Too many control loop errors, stopping navigation")
+                    try:
+                        self.navigator.stop()
+                    except:
+                        pass
+                    break
+        
+        # Ensure motors are stopped when loop exits
+        try:
+            self.motor_controller.emergency_stop()
+        except:
+            pass
         
         logger.info("Control loop stopped")
     
@@ -238,14 +359,36 @@ class RoverManager(PositionObserver):
     def cancel_navigation(self):
         """Cancel current navigation"""
         self.navigator.stop()
-        self.motor_controller.emergency_stop()
+        self.emergency_stop("Navigation cancelled")
         logger.info("Navigation cancelled")
     
-    def emergency_stop(self):
-        """Emergency stop - immediately halt all movement"""
-        logger.warning("EMERGENCY STOP activated")
-        self.motor_controller.emergency_stop()
-        self.navigator.pause()
+    def emergency_stop(self, reason: str = "Manual"):
+        """
+        Emergency stop - immediately halt all movement
+        
+        Args:
+            reason: Reason for emergency stop (for logging/telemetry)
+        """
+        logger.critical(f"🛑 EMERGENCY STOP: {reason}")
+        
+        # 1. Stop motors immediately
+        try:
+            self.motor_controller.emergency_stop()
+        except Exception as e:
+            logger.error(f"Failed to stop motors during emergency stop: {e}")
+        
+        # 2. Pause navigation
+        try:
+            self.navigator.pause()
+        except Exception as e:
+            logger.error(f"Failed to pause navigator during emergency stop: {e}")
+        
+        # 3. Log event for telemetry
+        self._last_emergency_stop = {
+            'timestamp': datetime.now().isoformat(),
+            'reason': reason
+        }
+        self.metrics.add_emergency_stop()
     
     # Status and monitoring
     

@@ -39,6 +39,11 @@ class MotorController:
         self._last_command_time: Optional[datetime] = None
         self._current_command: Optional[DifferentialDriveCommand] = None
         
+        # Motor ramping for smooth acceleration/deceleration
+        self._ramp_rate = 0.05  # 5% per cycle
+        self._current_left_speed = 0.0
+        self._current_right_speed = 0.0
+        
         # Thread safety
         self._lock = threading.Lock()
         
@@ -110,6 +115,35 @@ class MotorController:
         
         logger.debug(f"Executed nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
     
+    def _apply_ramping(self, target_left: float, target_right: float) -> tuple[float, float]:
+        """
+        Apply smooth acceleration/deceleration ramping to motor speeds
+        
+        Args:
+            target_left: Target left motor speed (-1.0 to 1.0)
+            target_right: Target right motor speed (-1.0 to 1.0)
+        
+        Returns:
+            tuple: (ramped_left_speed, ramped_right_speed)
+        """
+        # Ramp left motor
+        left_delta = target_left - self._current_left_speed
+        if abs(left_delta) > self._ramp_rate:
+            sign = 1 if left_delta > 0 else -1
+            self._current_left_speed += self._ramp_rate * sign
+        else:
+            self._current_left_speed = target_left
+        
+        # Ramp right motor
+        right_delta = target_right - self._current_right_speed
+        if abs(right_delta) > self._ramp_rate:
+            sign = 1 if right_delta > 0 else -1
+            self._current_right_speed += self._ramp_rate * sign
+        else:
+            self._current_right_speed = target_right
+        
+        return self._current_left_speed, self._current_right_speed
+    
     def execute_differential_command(self, command: DifferentialDriveCommand):
         """
         Execute differential drive command
@@ -125,9 +159,12 @@ class MotorController:
             self._current_command = command
             self._last_command_time = datetime.now()
         
-        # Apply speed limits
-        left_speed = command.left_speed * self.max_speed
-        right_speed = command.right_speed * self.max_speed
+        # Calculate target speeds
+        target_left = command.left_speed * self.max_speed
+        target_right = command.right_speed * self.max_speed
+        
+        # Apply ramping for smooth acceleration
+        left_speed, right_speed = self._apply_ramping(target_left, target_right)
         
         # Set left motor
         left_dir = MotorDirection.FORWARD if left_speed >= 0 else MotorDirection.BACKWARD
@@ -137,7 +174,7 @@ class MotorController:
         right_dir = MotorDirection.FORWARD if right_speed >= 0 else MotorDirection.BACKWARD
         self.motor_driver.set_motor('right', right_dir, abs(right_speed))
         
-        logger.debug(f"Differential command: L={left_speed:.2f}, R={right_speed:.2f}")
+        logger.debug(f"Ramped differential: L={left_speed:.2f}, R={right_speed:.2f}")
     
     def _navigation_to_differential(self, nav_command: NavigationCommand) -> DifferentialDriveCommand:
         """
@@ -180,6 +217,9 @@ class MotorController:
         with self._lock:
             self._current_command = None
             self._last_command_time = None
+            # Reset ramping state
+            self._current_left_speed = 0.0
+            self._current_right_speed = 0.0
     
     def _safety_monitor(self):
         """

@@ -54,11 +54,17 @@ class Navigator(NavigationInterface):
         self._current_heading: Optional[float] = None  # degrees
         self._current_speed: Optional[float] = None  # m/s
         self._target_waypoint: Optional[Waypoint] = None
+        self._last_position_time: Optional[datetime] = None  # GPS timestamp tracking
         self._mode = NavigationMode.IDLE
         self._status = NavigationStatus.IDLE
         self._is_running = False
         self._is_paused = False
         self._error_message: Optional[str] = None
+        
+        # Command smoothing
+        self._last_command: Optional[NavigationCommand] = None
+        self._max_turn_rate_change = 0.3  # Max 30% change per cycle
+        self._max_speed_change = 0.5      # Max 50% change per cycle
         
         # Thread safety
         self._lock = threading.Lock()
@@ -66,15 +72,47 @@ class Navigator(NavigationInterface):
         logger.info("Navigator initialized")
     
     def update_position(self, lat: float, lon: float, heading: Optional[float] = None, speed: Optional[float] = None):
-        """Update current position from GPS"""
+        """Update current position from GPS with intelligent heading handling"""
         with self._lock:
+            previous_position = self._current_position
             self._current_position = (lat, lon)
+            self._last_position_time = datetime.now()
+            
+            # Priority 1: Use GPS heading (course over ground) when available
             if heading is not None:
                 self._current_heading = heading
+                logger.debug(f"Using GPS heading: {heading:.1f}°")
+            # Priority 2: Calculate heading from movement (if moving and have previous position)
+            elif previous_position and speed is not None and speed > 0.5:
+                # Only calculate if robot is moving (speed > 0.5 m/s)
+                calculated_heading = self.geo_utils.calculate_bearing(
+                    previous_position[0], previous_position[1],
+                    lat, lon
+                )
+                self._current_heading = calculated_heading
+                logger.debug(f"Calculated heading from movement: {calculated_heading:.1f}°")
+            # else: Keep previous heading value
+            
             if speed is not None:
                 self._current_speed = speed
             
-            logger.debug(f"Position updated: ({lat:.6f}, {lon:.6f}), heading: {heading}, speed: {speed}")
+            logger.debug(f"Position updated: ({lat:.6f}, {lon:.6f}), heading: {self._current_heading}, speed: {speed}")
+    
+    def _is_position_stale(self, max_age_seconds: float = 2.0) -> bool:
+        """
+        Check if current position is too old
+        
+        Args:
+            max_age_seconds: Maximum acceptable age of position data
+        
+        Returns:
+            True if position is stale or not available
+        """
+        if not self._last_position_time:
+            return True
+        
+        age = (datetime.now() - self._last_position_time).total_seconds()
+        return age > max_age_seconds
     
     def set_target(self, waypoint: Waypoint):
         """Set single target waypoint"""
@@ -113,6 +151,13 @@ class Navigator(NavigationInterface):
             if not self._current_position:
                 self._error_message = "No GPS position available"
                 self._status = NavigationStatus.ERROR
+                return None
+            
+            # Check if GPS data is stale
+            if self._is_position_stale(max_age_seconds=2.0):
+                self._error_message = "GPS data too old"
+                self._status = NavigationStatus.ERROR
+                logger.warning("GPS data is stale, stopping navigation")
                 return None
             
             if not self._target_waypoint:
@@ -165,12 +210,57 @@ class Navigator(NavigationInterface):
             self._status = NavigationStatus.NAVIGATING
             self._error_message = None
             
-            return NavigationCommand(
+            # Create raw command
+            raw_command = NavigationCommand(
                 speed=speed,
                 turn_rate=turn_rate,
                 timestamp=datetime.now(),
                 priority=1
             )
+            
+            # Apply smoothing
+            smoothed_command = self._smooth_command(raw_command)
+            self._last_command = smoothed_command
+            
+            return smoothed_command
+    
+    def _smooth_command(self, command: NavigationCommand) -> NavigationCommand:
+        """
+        Apply rate limiting to navigation commands to prevent abrupt changes
+        
+        Args:
+            command: Raw navigation command
+        
+        Returns:
+            Smoothed navigation command
+        """
+        if not self._last_command:
+            # First command, no smoothing needed
+            return command
+        
+        smoothed_speed = command.speed
+        smoothed_turn = command.turn_rate
+        
+        # Limit turn rate change
+        turn_delta = command.turn_rate - self._last_command.turn_rate
+        if abs(turn_delta) > self._max_turn_rate_change:
+            sign = 1 if turn_delta > 0 else -1
+            smoothed_turn = self._last_command.turn_rate + (self._max_turn_rate_change * sign)
+            logger.debug(f"Turn rate limited: {command.turn_rate:.2f} → {smoothed_turn:.2f}")
+        
+        # Limit speed change
+        speed_delta = command.speed - self._last_command.speed
+        if abs(speed_delta) > self._max_speed_change:
+            sign = 1 if speed_delta > 0 else -1
+            smoothed_speed = self._last_command.speed + (self._max_speed_change * sign)
+            logger.debug(f"Speed limited: {command.speed:.2f} → {smoothed_speed:.2f}")
+        
+        return NavigationCommand(
+            speed=smoothed_speed,
+            turn_rate=smoothed_turn,
+            timestamp=command.timestamp,
+            priority=command.priority
+        )
     
     def _handle_waypoint_reached(self) -> NavigationCommand:
         """Handle when waypoint is reached"""
@@ -200,8 +290,15 @@ class Navigator(NavigationInterface):
         return NavigationCommand(speed=0.0, turn_rate=0.0, timestamp=datetime.now())
     
     def get_state(self) -> NavigationState:
-        """Get current navigation state"""
+        """
+        Get current navigation state (thread-safe)
+        Returns an immutable snapshot of the current state
+        
+        Returns:
+            NavigationState: Immutable state object
+        """
         with self._lock:
+            # Calculate derived values under lock
             distance_to_target = None
             bearing_to_target = None
             
@@ -215,6 +312,7 @@ class Navigator(NavigationInterface):
                     (self._target_waypoint.lat, self._target_waypoint.lon)
                 )
             
+            # Return immutable NavigationState (dataclass)
             return NavigationState(
                 current_position=self._current_position,
                 target_waypoint=self._target_waypoint,
@@ -257,6 +355,7 @@ class Navigator(NavigationInterface):
             if self._is_running:
                 self._is_paused = True
                 self._status = NavigationStatus.PAUSED
+                self.heading_pid.reset()
                 logger.info("Navigator paused")
     
     def resume(self):
@@ -265,6 +364,7 @@ class Navigator(NavigationInterface):
             if self._is_running and self._is_paused:
                 self._is_paused = False
                 self._status = NavigationStatus.NAVIGATING if self._target_waypoint else NavigationStatus.IDLE
+                self.heading_pid.reset()
                 logger.info("Navigator resumed")
     
     # Additional utility methods

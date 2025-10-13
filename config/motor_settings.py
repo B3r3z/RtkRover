@@ -20,7 +20,7 @@ motor_gpio_pins = {
 motor_config = {
     'max_speed': float(os.getenv('MOTOR_MAX_SPEED', '0.8')),  # 0.0 to 1.0
     'turn_sensitivity': float(os.getenv('MOTOR_TURN_SENSITIVITY', '1.0')),
-    'safety_timeout': float(os.getenv('MOTOR_SAFETY_TIMEOUT', '2.0')),  # seconds
+    'safety_timeout': float(os.getenv('MOTOR_SAFETY_TIMEOUT', '0.5')),  # seconds
     'use_gpio': os.getenv('MOTOR_USE_GPIO', 'True').lower() == 'true'  # Set to False for simulation
 }
 
