@@ -27,6 +27,7 @@ class RTKManager:
         self.system: Optional[RTKSystemInterface] = None
         self.position_callback: Optional[Callable] = None
         self.running = False
+        self._pending_observers = []  # Store observers before system starts
         
         try:
             from config.settings import rtk_config, uart_config
@@ -43,6 +44,12 @@ class RTKManager:
         try:
             self.system = RTKFactory.create_system(self.uart_config, self.ntrip_config)
             
+            # Add pending observers first
+            for observer in self._pending_observers:
+                self.system.add_position_observer(observer)
+            self._pending_observers.clear()
+            
+            # Add callback adapter if callback was set
             if self.position_callback:
                 adapter = PositionCallbackAdapter(self.position_callback)
                 self.system.add_position_observer(adapter)
@@ -65,6 +72,22 @@ class RTKManager:
     
     def set_position_callback(self, callback: Callable):
         self.position_callback = callback
+    
+    def add_position_observer(self, observer: PositionObserver):
+        """
+        Add a position observer to receive position updates.
+        If system is already running, adds observer immediately.
+        Otherwise, observer will be added when system starts.
+        """
+        if self.system:
+            self.system.add_position_observer(observer)
+            logger.info(f"Position observer added to running RTK system")
+        else:
+            # Store observer to add when system starts
+            if not hasattr(self, '_pending_observers'):
+                self._pending_observers = []
+            self._pending_observers.append(observer)
+            logger.info(f"Position observer queued for RTK system startup")
     
     def get_status(self) -> Dict[str, Any]:
         if not self.system:
