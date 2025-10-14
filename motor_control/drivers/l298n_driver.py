@@ -27,21 +27,26 @@ class L298NDriver(MotorDriverInterface):
         """
         self.gpio_pins = gpio_pins
         self.use_gpio = use_gpio
-        self._initialized = True
+        self._initialized = False  # Changed: Must call initialize() first
         self._pwm_frequency = 1000  # Hz
         self._pwm_objects: Dict[str, any] = {}
+        self._simulation_mode = False  # Track if running in simulation
         
         if self.use_gpio:
             try:
                 import RPi.GPIO as GPIO
                 self.GPIO = GPIO
+                logger.info("RPi.GPIO loaded - call initialize() to setup pins")
             except (ImportError, RuntimeError) as e:
                 logger.warning(f"RPi.GPIO not available: {e}. Running in simulation mode.")
                 self.use_gpio = False
+                self._simulation_mode = True
                 self.GPIO = None
         else:
             self.GPIO = None
+            self._simulation_mode = True
             logger.info("L298N driver initialized in simulation mode")
+            self._initialized = True  # Simulation mode needs no initialization
     
     def initialize(self) -> bool:
         """Initialize GPIO pins and PWM"""
@@ -49,14 +54,23 @@ class L298NDriver(MotorDriverInterface):
             logger.warning("Driver already initialized")
             return True
         
-        if not self.use_gpio:
+        if self._simulation_mode or not self.use_gpio:
             logger.info("Simulation mode: GPIO initialization skipped")
             self._initialized = True
             return True
         
         try:
-            # Set GPIO mode
-            self.GPIO.setmode(self.GPIO.BCM)
+            # Test if GPIO is actually functional (not just importable)
+            try:
+                self.GPIO.setmode(self.GPIO.BCM)
+            except Exception as gpio_test_error:
+                logger.warning(f"GPIO hardware not available ({gpio_test_error}). Falling back to simulation mode.")
+                self._simulation_mode = True
+                self.use_gpio = False
+                self.GPIO = None
+                self._initialized = True
+                return True
+            
             self.GPIO.setwarnings(False)
             
             # Initialize pins for each motor
@@ -107,7 +121,7 @@ class L298NDriver(MotorDriverInterface):
         
         pins = self.gpio_pins[motor_id]
         
-        if self.use_gpio:
+        if self.use_gpio and not self._simulation_mode:
             try:
                 # Set direction
                 if direction == MotorDirection.FORWARD:
@@ -149,7 +163,7 @@ class L298NDriver(MotorDriverInterface):
         # Stop all motors first
         self.stop_all()
         
-        if self.use_gpio and self.GPIO:
+        if self.use_gpio and self.GPIO and not self._simulation_mode:
             try:
                 # Stop PWM
                 for pwm in self._pwm_objects.values():
