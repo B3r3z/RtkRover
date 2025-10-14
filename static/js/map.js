@@ -165,12 +165,17 @@
     // ROVER SYSTEM CHECK
     // ==========================================
     async function checkRoverAvailability() {
+        console.log('🔍 Checking rover system availability...');
         const result = await fetchJSON('/api/rover/test');
+        
+        console.log('📡 Rover test response:', result);
         
         if (result.error) {
             state.roverAvailable = false;
+            state.navEnabled = false;
             updateNavSystemStatus('unavailable', 'Niedostępny');
-            console.warn('Rover system not available');
+            console.warn('❌ Rover system not available:', result.error);
+            console.warn('📋 State:', { roverAvailable: state.roverAvailable, navEnabled: state.navEnabled });
             return false;
         }
         
@@ -179,11 +184,16 @@
             state.navEnabled = true;
             updateNavSystemStatus('ready', 'Gotowy ✓');
             console.log('✅ Rover navigation system available');
+            console.log('📋 State:', { roverAvailable: state.roverAvailable, navEnabled: state.navEnabled });
             return true;
         }
         
+        // Fallback - jeśli odpowiedź jest inna niż oczekiwana
         state.roverAvailable = false;
+        state.navEnabled = false;
         updateNavSystemStatus('unavailable', 'Niedostępny');
+        console.warn('⚠️ Unexpected rover response format:', result);
+        console.warn('📋 State:', { roverAvailable: state.roverAvailable, navEnabled: state.navEnabled });
         return false;
     }
     
@@ -351,16 +361,36 @@
         
         const label = name && name.trim() ? name.trim() : 'WP' + (state.wps.length + 1);
         
+        console.log('📍 Adding waypoint:', { name: label, lat, lon });
+        console.log('🔍 Navigation state:', { 
+            navEnabled: state.navEnabled, 
+            roverAvailable: state.roverAvailable,
+            willSendToBackend: state.navEnabled && state.roverAvailable
+        });
+        
         // If rover navigation available, send to backend
         if (state.navEnabled && state.roverAvailable) {
+            console.log('📤 Sending waypoint to backend:', API.addWaypoint);
             const result = await postJSON(API.addWaypoint, { lat, lon, name: label });
             
+            console.log('📥 Backend response:', result);
+            
             if (result.error) {
-                console.error('Failed to add waypoint to navigation system:', result.error);
+                console.error('❌ Failed to add waypoint to navigation system:', result.error);
+                alert(`⚠️ Błąd nawigacji: ${result.error}\n\nPunkt zostanie dodany lokalnie.`);
                 // Fall back to local storage
             } else {
                 console.log('✅ Waypoint added to navigation system:', result);
+                if (result.success) {
+                    alert(`✅ Waypoint '${label}' dodany do systemu nawigacji`);
+                }
             }
+        } else {
+            console.warn('⚠️ Navigation not available - waypoint added to local storage only');
+            console.warn('Reasons:', {
+                navEnabled: state.navEnabled,
+                roverAvailable: state.roverAvailable
+            });
         }
         
         // Always add to local list for display
@@ -511,6 +541,21 @@
         // Navigation controls
         if (ui.btnEmergencyStop) {
             ui.btnEmergencyStop.addEventListener('click', emergencyStop);
+        }
+        
+        // Check rover button
+        const btnCheckRover = document.getElementById('btnCheckRover');
+        if (btnCheckRover) {
+            btnCheckRover.addEventListener('click', async () => {
+                console.log('🔄 Manual rover system check triggered');
+                btnCheckRover.disabled = true;
+                btnCheckRover.textContent = '⏳ Sprawdzanie...';
+                
+                await checkRoverAvailability();
+                
+                btnCheckRover.disabled = false;
+                btnCheckRover.textContent = '🔄 Sprawdź ponownie';
+            });
         }
         
         // Waypoint list actions
