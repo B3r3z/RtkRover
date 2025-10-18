@@ -40,7 +40,9 @@ class MotorController:
         self._current_command: Optional[DifferentialDriveCommand] = None
         
         # Motor ramping for smooth acceleration/deceleration
-        self._ramp_rate = 0.05  # 5% per cycle
+        # NOTE: Set to 1.0 to disable ramping (full speed immediately)
+        # Lower values = smoother but slower acceleration (0.05 = 20 cycles to full speed at 0.5s cycle)
+        self._ramp_rate = 0.5  # 25% per cycle = ~2 seconds to full speed (was 0.05)
         self._current_left_speed = 0.0
         self._current_right_speed = 0.0
         
@@ -104,7 +106,8 @@ class MotorController:
             nav_command: Navigation command with speed and turn_rate
         """
         if not self._is_running:
-            logger.warning("Motor controller not running")
+            logger.warning("Motor controller not running - COMMAND IGNORED!")
+            logger.warning(f"  speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
             return
         
         # Convert navigation command to differential drive
@@ -113,7 +116,7 @@ class MotorController:
         # Execute command
         self.execute_differential_command(diff_command)
         
-        logger.debug(f"Executed nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
+        logger.debug(f"Executed nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f} → L={diff_command.left_speed:.2f}, R={diff_command.right_speed:.2f}")
     
     def _apply_ramping(self, target_left: float, target_right: float) -> tuple[float, float]:
         """
@@ -141,6 +144,10 @@ class MotorController:
             self._current_right_speed += self._ramp_rate * sign
         else:
             self._current_right_speed = target_right
+        
+        # Log only if speeds changed significantly
+        if abs(left_delta) > 0.01 or abs(right_delta) > 0.01:
+            logger.debug(f"Ramp: target=({target_left:.2f},{target_right:.2f}) → actual=({self._current_left_speed:.2f},{self._current_right_speed:.2f})")
         
         return self._current_left_speed, self._current_right_speed
     

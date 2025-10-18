@@ -10,12 +10,6 @@ logger = logging.getLogger(__name__)
 
 class LC29HGPS(GPS):
     BAUDRATES = [115200, 38400, 9600]
-    PAIR_ENABLE_GGA_1HZ = b"$PAIR062,0,1*3E\r\n"  # Enable GGA (type 0) output
-    PAIR_DISABLE_GLL = b"$PAIR062,1,0*3F\r\n"     # Disable GLL (type 1)
-    PAIR_DISABLE_GSA = b"$PAIR062,2,0*3C\r\n"     # Disable GSA (type 2)
-    PAIR_DISABLE_GSV = b"$PAIR062,3,0*3D\r\n"     # Disable GSV (type 3)
-    PAIR_DISABLE_RMC = b"$PAIR062,4,0*3A\r\n"     # Disable RMC (type 4)
-    PAIR_DISABLE_VTG = b"$PAIR062,5,0*3B\r\n"     # Disable VTG (type 5)
     
     def __init__(self, port: str):
         self.port = port
@@ -75,68 +69,20 @@ class LC29HGPS(GPS):
         if self.serial_conn.in_waiting:
             self.serial_conn.read(self.serial_conn.in_waiting)
 
-        # Sequence: enable GGA, disable others
-        sequence = [
-            (self.PAIR_ENABLE_GGA_1HZ, "Enable GGA 1Hz"),
-            (self.PAIR_DISABLE_GLL, "Disable GLL"),
-            (self.PAIR_DISABLE_GSA, "Disable GSA"),
-            (self.PAIR_DISABLE_GSV, "Disable GSV"),
-            (self.PAIR_DISABLE_RMC, "Disable RMC"),
-            (self.PAIR_DISABLE_VTG, "Disable VTG"),
+        # Configuration commands sequence: (command_bytes, description)
+        configuration_commands = [
+            (b"$PAIR062,0,1*3E\r\n", "Enable GGA 1Hz"),
+         #   (b"$PAIR062,1,0*3F\r\n", "Disable GLL"),
+          #  (b"$PAIR062,2,0*3C\r\n", "Disable GSA"),
+           # (b"$PAIR062,3,0*3D\r\n", "Disable GSV"),
+            (b"$PAIR062,4,0*3A\r\n", "Disable RMC"),
+            (b"$PAIR062,5,0*3B\r\n", "Disable VTG"),
         ]
 
-        for cmd, desc in sequence:
+        for cmd, desc in configuration_commands:
             self._send_nmea_command(cmd, desc)
 
-        # Verification phase
-        logger.info("🔧 Verifying NMEA output (expect only GNGGA)...")
-        verify_start = time.time()
-        seen_types = set()
-        while time.time() - verify_start < 5.0 and len(seen_types) < 8:
-            if self.serial_conn.in_waiting:
-                try:
-                    line = self.serial_conn.readline().decode('ascii', errors='ignore').strip()
-                    if line.startswith('$') and ',' in line:
-                        msg = line.split(',')[0][1:]
-                        seen_types.add(msg)
-                except Exception:
-                    pass
-            time.sleep(0.05)
-
-        if seen_types:
-            logger.info(f"🔧 Detected after PAIR setup: {sorted(seen_types)}")
-        else:
-            logger.warning("⚠️ No NMEA sentences observed post PAIR commands")
-
-        only_gga = (len(seen_types) == 1 and any(t.endswith('GGA') for t in seen_types))
-        gga_present = any(t.endswith('GGA') for t in seen_types)
-
-        if only_gga:
-            logger.info("✅ PAIR062 configuration success: only GGA output.")
-            return
-        elif gga_present and len(seen_types) <= 3:
-            logger.warning(f"⚠️ PAIR062 partial success: extra types {seen_types - {t for t in seen_types if t.endswith('GGA')}}")
-        else:
-            logger.warning("❌ PAIR062 failed to restrict output to GGA. Falling back to PQTM method...")
-
-        # Re-verify after fallback
-        verify_start = time.time()
-        seen_types = set()
-        while time.time() - verify_start < 5.0 and len(seen_types) < 8:
-            if self.serial_conn.in_waiting:
-                try:
-                    line = self.serial_conn.readline().decode('ascii', errors='ignore').strip()
-                    if line.startswith('$') and ',' in line:
-                        msg = line.split(',')[0][1:]
-                        seen_types.add(msg)
-                except Exception:
-                    pass
-            time.sleep(0.05)
-
-        if len(seen_types) == 1 and any(t.endswith('GGA') for t in seen_types):
-            logger.info("✅ PQTM fallback success: only GGA output.")
-        else:
-            logger.warning(f"⚠️ After PQTM fallback still multiple types: {sorted(seen_types)}")
+        logger.info("✅ Configuration commands sent successfully.")
 
     def _send_nmea_command(self, cmd: bytes, desc: str, wait: float = 0.25):
         """Send a single NMEA configuration command with optional short wait.
