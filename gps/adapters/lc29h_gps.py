@@ -4,6 +4,8 @@ import logging
 import struct
 from typing import Optional
 from pynmeagps import NMEAReader, NMEAMessage
+
+from config.nmea_parser_helper import NMEANavigationParser
 from ..core.interfaces import GPS, Position, RTKStatus
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,10 @@ class LC29HGPS(GPS):
         self._rtcm_log_interval = 5.0      
         self._rtcm_message_count = 0
         self._last_rtk_status = None
+        self.last_heading = None
+        self.last_speed = None
+        self._last_rmc_time = 0
+        self._last_vtg_time = 0
         
     def connect(self) -> bool:
         logger.info(f"🔌 Connecting to LC29H GPS on {self.port}")
@@ -72,10 +78,10 @@ class LC29HGPS(GPS):
         # Configuration commands sequence: (command_bytes, description)
         configuration_commands = [
             (b"$PAIR062,0,1*3E\r\n", "Enable GGA 1Hz"),
-         #   (b"$PAIR062,1,0*3F\r\n", "Disable GLL"),
-          #  (b"$PAIR062,2,0*3C\r\n", "Disable GSA"),
-           # (b"$PAIR062,3,0*3D\r\n", "Disable GSV"),
-            (b"$PAIR062,4,1*3A\r\n", "Enable RMC"),
+            (b"$PAIR062,1,0*3F\r\n", "Disable GLL"),
+            (b"$PAIR062,2,0*3C\r\n", "Disable GSA"),
+            (b"$PAIR062,3,0*3D\r\n", "Disable GSV"),
+            (b"$PAIR062,4,0*3A\r\n", "Disable RMC"),
             (b"$PAIR062,5,1*3B\r\n", "Enabled VTG"),
         ]
 
@@ -135,7 +141,16 @@ class LC29HGPS(GPS):
             if time.time() - self._last_gga_time > 5.0:
                 logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
                 return self._parse_gll(nmea_msg)
-        elif msg_type in ['GSA', 'GSV', 'RMC', 'VTG']:
+        elif msg_type == 'VTG':
+            self._last_vtg_time = time.time()
+            speed, heading = NMEANavigationParser.parse_vtg_navigation(nmea_msg)
+            if speed is not None:
+                self.last_speed = speed
+            if heading is not None:
+                self.last_heading = heading
+            logger.debug(f"📡 VTG update - Speed: {self.last_speed} kn, Heading: {self.last_heading}°")
+            return None  # VTG does not provide position directly
+        elif msg_type in ['GSA', 'GSV', 'RMC']:
             # Common NMEA messages - silently ignore
             pass
         else:
@@ -263,7 +278,9 @@ class LC29HGPS(GPS):
                 satellites=satellites,
                 hdop=hdop,
                 rtk_status=rtk_status,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                heading=self.last_heading,
+                speed=self.last_speed
             )
             
         except Exception as e:

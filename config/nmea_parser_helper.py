@@ -1,6 +1,9 @@
 """
 NMEA Parser Extension - Helper for extracting heading and speed
 Used to extend Position data with navigation information
+
+All speed values are automatically converted from knots to m/s for consistency
+with the navigation system.
 """
 import logging
 from typing import Optional, Tuple
@@ -13,6 +16,9 @@ class NMEANavigationParser:
     """
     Helper class for parsing heading and speed from NMEA messages
     Supports RMC (Recommended Minimum) and VTG (Track Made Good) messages
+    
+    Speed values are automatically converted from knots (GPS native) to m/s
+    (SI unit used by navigation system).
     """
     
     @staticmethod
@@ -28,20 +34,25 @@ class NMEANavigationParser:
             rmc: Parsed RMC NMEA message
             
         Returns:
-            Tuple of (speed_knots, heading_degrees) or (None, None)
+            Tuple of (speed_mps, heading_degrees) or (None, None)
+            Note: Speed is automatically converted from knots to m/s
         """
-        speed = None
+        speed_mps = None
         heading = None
         
         try:
-            # Parse speed (in knots)
+            # Parse speed (in knots) and convert to m/s
             if hasattr(rmc, 'spd') and rmc.spd is not None and rmc.spd != '':
                 try:
-                    speed = float(rmc.spd)
+                    speed_knots = float(rmc.spd)
                     # Validate speed (0-200 knots is reasonable for ground vehicles)
-                    if not 0.0 <= speed <= 200.0:
-                        logger.debug(f"RMC: Speed {speed} out of range, ignoring")
-                        speed = None
+                    if not 0.0 <= speed_knots <= 200.0:
+                        logger.debug(f"RMC: Speed {speed_knots} kn out of range, ignoring")
+                        speed_mps = None
+                    else:
+                        # Convert knots to m/s for consistency with navigation system
+                        speed_mps = NMEANavigationParser.convert_knots_to_mps(speed_knots)
+                        logger.debug(f"RMC: Parsed speed {speed_knots:.2f} kn → {speed_mps:.2f} m/s")
                 except (ValueError, TypeError):
                     logger.debug(f"RMC: Invalid speed format: {rmc.spd}")
             
@@ -56,13 +67,12 @@ class NMEANavigationParser:
                 except (ValueError, TypeError):
                     logger.debug(f"RMC: Invalid heading format: {rmc.cog}")
             
-            return speed, heading
+            return speed_mps, heading
             
         except Exception as e:
             logger.debug(f"Error parsing RMC navigation data: {e}")
             return None, None
     
-    @staticmethod
     def parse_vtg_navigation(vtg: NMEAMessage) -> Tuple[Optional[float], Optional[float]]:
         """
         Parse speed and course from VTG message
@@ -75,19 +85,25 @@ class NMEANavigationParser:
             vtg: Parsed VTG NMEA message
             
         Returns:
-            Tuple of (speed_knots, heading_degrees) or (None, None)
+            Tuple of (speed_mps, heading_degrees) or (None, None)
+            Note: Speed is automatically converted from knots to m/s
         """
-        speed = None
+        speed_mps = None
         heading = None
         
         try:
-            # Parse speed (in knots)
+            # Parse speed (in knots) and convert to m/s
             if hasattr(vtg, 'sogk') and vtg.sogk is not None and vtg.sogk != '':
                 try:
-                    speed = float(vtg.sogk)
-                    if not 0.0 <= speed <= 200.0:
-                        logger.debug(f"VTG: Speed {speed} out of range, ignoring")
-                        speed = None
+                    speed_knots = float(vtg.sogk)
+                    # Validate speed (0-200 knots is reasonable for ground vehicles)
+                    if not 0.0 <= speed_knots <= 200.0:
+                        logger.debug(f"VTG: Speed {speed_knots} kn out of range, ignoring")
+                        speed_mps = None
+                    else:
+                        # Convert knots to m/s for consistency with navigation system
+                        speed_mps = NMEANavigationParser.convert_knots_to_mps(speed_knots)
+                        logger.debug(f"VTG: Parsed speed {speed_knots:.2f} kn → {speed_mps:.2f} m/s")
                 except (ValueError, TypeError):
                     logger.debug(f"VTG: Invalid speed format: {vtg.sogk}")
             
@@ -101,7 +117,7 @@ class NMEANavigationParser:
                 except (ValueError, TypeError):
                     logger.debug(f"VTG: Invalid heading format: {vtg.cogt}")
             
-            return speed, heading
+            return speed_mps, heading
             
         except Exception as e:
             logger.debug(f"Error parsing VTG navigation data: {e}")
