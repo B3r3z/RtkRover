@@ -63,7 +63,7 @@ class LC29HGPS(GPS):
     def _configure_lc29h(self):
         if not self.serial_conn:
             return
-        logger.info("🔧 Configuring LC29H with PAIR062 commands (enable GGA only)...")
+        logger.info("🔧 Configuring LC29H with PAIR062 commands...")
 
         # Clear buffer first
         if self.serial_conn.in_waiting:
@@ -75,8 +75,8 @@ class LC29HGPS(GPS):
          #   (b"$PAIR062,1,0*3F\r\n", "Disable GLL"),
           #  (b"$PAIR062,2,0*3C\r\n", "Disable GSA"),
            # (b"$PAIR062,3,0*3D\r\n", "Disable GSV"),
-            (b"$PAIR062,4,0*3A\r\n", "Disable RMC"),
-            (b"$PAIR062,5,0*3B\r\n", "Disable VTG"),
+            (b"$PAIR062,4,1*3A\r\n", "Enable RMC"),
+            (b"$PAIR062,5,1*3B\r\n", "Enabled VTG"),
         ]
 
         for cmd, desc in configuration_commands:
