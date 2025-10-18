@@ -136,11 +136,6 @@ class LC29HGPS(GPS):
         if msg_type == 'GGA':
             self._last_gga_time = time.time()
             return self._parse_gga(nmea_msg)
-        elif msg_type == 'GLL':
-            # Only use GLL as fallback if no recent GGA
-            if time.time() - self._last_gga_time > 5.0:
-                logger.debug(f"📡 Using GLL fallback (no GGA for {time.time() - self._last_gga_time:.1f}s)")
-                return self._parse_gll(nmea_msg)
         elif msg_type == 'VTG':
             self._last_vtg_time = time.time()
             speed, heading = NMEANavigationParser.parse_vtg_navigation(nmea_msg)
@@ -270,6 +265,10 @@ class LC29HGPS(GPS):
                 logger.debug("📡 GGA: No fix available")
             elif satellites < 4 and quality > 0:
                 logger.warning(f"📡 GGA: Fix claimed with insufficient satellites ({satellites})")
+
+            vtg_age = current_time - self._last_vtg_time if self._last_vtg_time > 0 else float('inf')
+            heading = self.last_heading if vtg_age < 5.0 else None
+            speed = self.last_speed if vtg_age < 5.0 else None
             
             return Position(
                 lat=lat,
@@ -279,8 +278,8 @@ class LC29HGPS(GPS):
                 hdop=hdop,
                 rtk_status=rtk_status,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                heading=self.last_heading,
-                speed=self.last_speed
+                heading=heading,
+                speed=speed
             )
             
         except Exception as e:
