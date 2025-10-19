@@ -376,19 +376,14 @@ class RoverManager(PositionObserver):
             self.motor_controller.emergency_stop()
         except Exception as e:
             logger.error(f"Failed to stop motors during emergency stop: {e}")
-        
-        # 2. Pause navigation
-        try:
-            self.navigator.pause()
-        except Exception as e:
-            logger.error(f"Failed to pause navigator during emergency stop: {e}")
-        
-        # 3. Log event for telemetry
+    
         self._last_emergency_stop = {
             'timestamp': datetime.now().isoformat(),
             'reason': reason
         }
         self.metrics.add_emergency_stop()
+        
+        logger.info("Emergency stop: motors stopped, navigation continues")
     
     # Status and monitoring
     
@@ -414,14 +409,26 @@ class RoverManager(PositionObserver):
         return [wp.to_dict() for wp in self.navigator.get_waypoints()]
     
     def add_waypoint(self, lat: float, lon: float, name: str = None) -> bool:
-        """Add waypoint to queue"""
+        """
+        Add waypoint to queue (does NOT start navigation automatically)
+        Use start_navigation() to begin following waypoints
+        """
         try:
             waypoint = Waypoint(lat=lat, lon=lon, name=name)
-            self.navigator.add_waypoint(waypoint)
+            self.navigator.add_waypoint(waypoint, auto_start=False)
             return True
         except Exception as e:
             logger.error(f"Failed to add waypoint: {e}")
             return False
+    
+    def start_navigation(self) -> bool:
+        """
+        Start navigation with queued waypoints
+        
+        Returns:
+            True if started successfully, False otherwise
+        """
+        return self.navigator.start_navigation()
     
     def clear_waypoints(self):
         """Clear all waypoints"""

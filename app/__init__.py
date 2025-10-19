@@ -492,7 +492,12 @@ def _register_routes(app):
     
     @app.route('/api/navigation/waypoint', methods=['POST'])
     def api_add_waypoint():
-        """Add navigation waypoint to queue"""
+        """
+        Add navigation waypoint to queue (does NOT start navigation automatically)
+        
+        Use /api/navigation/start to begin navigation after adding waypoints.
+        For immediate navigation to a single point, use /api/navigation/goto instead.
+        """
         try:
             data = request.get_json()
             
@@ -663,6 +668,34 @@ def _register_routes(app):
             
         except Exception as e:
             logger.error(f"Follow path error: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+    
+    @app.route('/api/navigation/start', methods=['POST'])
+    def api_start_navigation():
+        """
+        Start navigation with queued waypoints
+        Use this after adding waypoints with /api/navigation/waypoint
+        """
+        try:
+            rover = get_rover_manager()
+            if not rover:
+                return jsonify({"error": "Rover system not initialized"}), 503
+            
+            if rover.start_navigation():
+                waypoints = rover.get_waypoints()
+                return jsonify({
+                    "success": True,
+                    "message": "Navigation started",
+                    "waypoint_count": len(waypoints)
+                })
+            else:
+                return jsonify({
+                    "error": "Cannot start navigation",
+                    "message": "No waypoints in queue or navigation already active"
+                }), 400
+            
+        except Exception as e:
+            logger.error(f"Start navigation error: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
     
     @app.route('/api/navigation/pause', methods=['POST'])

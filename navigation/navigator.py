@@ -369,16 +369,56 @@ class Navigator(NavigationInterface):
     
     # Additional utility methods
     
-    def add_waypoint(self, waypoint: Waypoint):
-        """Add waypoint to queue"""
+    def add_waypoint(self, waypoint: Waypoint, auto_start: bool = False):
+        """
+        Add waypoint to queue
+        
+        Args:
+            waypoint: Waypoint to add
+            auto_start: If True, automatically start navigation if not already active
+                       If False, waypoint is just queued (default behavior)
+        """
         with self._lock:
             self.waypoint_manager.add_waypoint(waypoint)
             
-            # If not currently navigating, set this as target
-            if not self._target_waypoint:
+            # Only auto-start if explicitly requested
+            if auto_start and not self._target_waypoint:
                 self._target_waypoint = self.waypoint_manager.get_next_waypoint()
                 self._mode = NavigationMode.PATH_FOLLOWING
                 self._status = NavigationStatus.NAVIGATING
+                logger.info(f"Waypoint added and navigation auto-started")
+            else:
+                logger.info(f"Waypoint added to queue (not started)")
+    
+    def start_navigation(self) -> bool:
+        """
+        Start navigation with queued waypoints
+        
+        Returns:
+            True if navigation started, False if no waypoints or already navigating
+        """
+        with self._lock:
+            # Check if already navigating
+            if self._target_waypoint and self._status == NavigationStatus.NAVIGATING:
+                logger.warning("Navigation already active")
+                return False
+            
+            # Check if we have waypoints
+            if not self.waypoint_manager.has_waypoints():
+                logger.warning("No waypoints to navigate to")
+                return False
+            
+            # Set first waypoint as target
+            self._target_waypoint = self.waypoint_manager.get_next_waypoint()
+            if self._target_waypoint:
+                self._mode = NavigationMode.PATH_FOLLOWING
+                self._status = NavigationStatus.NAVIGATING
+                self._is_paused = False
+                self.heading_pid.reset()
+                logger.info(f"Navigation started - target: {self._target_waypoint.name or 'unnamed'}")
+                return True
+            
+            return False
     
     def clear_waypoints(self):
         """Clear all waypoints"""

@@ -18,6 +18,7 @@
         clearWaypoints: '/api/navigation/waypoints',
         goto: '/api/navigation/goto',
         followPath: '/api/navigation/path',
+        startNavigation: '/api/navigation/start',
         pause: '/api/navigation/pause',
         resume: '/api/navigation/resume',
         cancel: '/api/navigation/cancel',
@@ -88,6 +89,7 @@
         
         // Navigation controls
         navSystemStatus: g('navSystemStatus'),
+        btnStartNav: g('btnStartNav'),
         btnEmergencyStop: g('btnEmergencyStop')
     };
     
@@ -427,6 +429,45 @@
     // ==========================================
     // NAVIGATION CONTROL
     // ==========================================
+    async function startNavigation() {
+        if (!state.navEnabled || !state.roverAvailable) {
+            alert('System nawigacji niedostępny');
+            return;
+        }
+        
+        if (state.wps.length === 0) {
+            alert('⚠️ Brak punktów do nawigacji!\n\nDodaj co najmniej jeden punkt przed startem.');
+            return;
+        }
+        
+        const result = await postJSON(API.startNavigation, {});
+        
+        if (result.error) {
+            alert('Błąd rozpoczęcia nawigacji: ' + result.error);
+            console.error('Navigation start error:', result);
+        } else {
+            console.log('✅ Navigation started');
+            alert(`🚀 Nawigacja rozpoczęta!\n\nPunkty do osiągnięcia: ${state.wps.length}`);
+            state.navRunning = true;
+            
+            // Show first waypoint as target
+            if (state.wps.length > 0) {
+                const wp = state.wps[0];
+                if (state.targetMarker) {
+                    state.targetMarker.setLatLng([wp.lat, wp.lon]);
+                } else {
+                    state.targetMarker = L.marker([wp.lat, wp.lon], {
+                        icon: L.icon({
+                            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSIjZmYwMDAwIiBkPSJNMTIgMmwtMSAxdi00bDEgMXYyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyeiIvPjwvc3ZnPg==',
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 32]
+                        })
+                    }).addTo(state.map);
+                }
+            }
+        }
+    }
+    
     async function goToWaypoint(index) {
         if (!state.navEnabled || !state.roverAvailable) {
             alert('System nawigacji niedostępny');
@@ -539,6 +580,10 @@
         });
         
         // Navigation controls
+        if (ui.btnStartNav) {
+            ui.btnStartNav.addEventListener('click', startNavigation);
+        }
+        
         if (ui.btnEmergencyStop) {
             ui.btnEmergencyStop.addEventListener('click', emergencyStop);
         }
@@ -618,6 +663,7 @@
         state,
         API,
         addWaypoint,
+        startNavigation,
         goToWaypoint,
         emergencyStop,
         checkRoverAvailability
