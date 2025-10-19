@@ -264,8 +264,7 @@ class RoverManager(PositionObserver):
                     from motor_control.motor_interface import DifferentialDriveCommand
                     stop_cmd = DifferentialDriveCommand(
                         left_speed=0.0,
-                        right_speed=0.0,
-                        timestamp=datetime.now()
+                        right_speed=0.0
                     )
                     self.motor_controller.execute_command(stop_cmd)
                 
