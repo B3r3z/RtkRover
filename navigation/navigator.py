@@ -60,6 +60,13 @@ class Navigator(NavigationInterface):
         self._is_running = False
         self._is_paused = False
         self._error_message: Optional[str] = None
+        self._approaching_logged: bool = False  # Track if "approaching waypoint" was logged
+        
+        # Heading calibration phase
+        self._calibration_mode = False
+        self._calibration_start_time: Optional[datetime] = None
+        self._calibration_duration = 3.0  # seconds to drive straight for heading calibration
+        self._calibration_speed = 0.3  # Low speed during calibration (30%)
         
         # Command smoothing
         self._last_command: Optional[NavigationCommand] = None
@@ -120,6 +127,9 @@ class Navigator(NavigationInterface):
             self._target_waypoint = waypoint
             self._mode = NavigationMode.WAYPOINT
             self._status = NavigationStatus.NAVIGATING
+            self._approaching_logged = False  # Reset for new waypoint
+            self._calibration_mode = False  # Reset calibration for new target
+            self._calibration_start_time = None
             logger.info(f"Target set: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
     
     def set_waypoint_path(self, waypoints: list):
@@ -134,6 +144,9 @@ class Navigator(NavigationInterface):
             if self._target_waypoint:
                 self._mode = NavigationMode.PATH_FOLLOWING
                 self._status = NavigationStatus.NAVIGATING
+                self._approaching_logged = False  # Reset for new waypoint
+                self._calibration_mode = False  # Reset calibration for path
+                self._calibration_start_time = None
                 logger.info(f"Path set with {len(waypoints)} waypoints")
     
     def get_navigation_command(self) -> Optional[NavigationCommand]:
@@ -164,6 +177,35 @@ class Navigator(NavigationInterface):
                 self._status = NavigationStatus.IDLE
                 return NavigationCommand(speed=0.0, turn_rate=0.0, timestamp=datetime.now())
             
+            # **HEADING CALIBRATION PHASE**
+            # If no heading available, enter calibration mode - drive straight to establish heading
+            if self._current_heading is None and not self._calibration_mode:
+                self._calibration_mode = True
+                self._calibration_start_time = datetime.now()
+                logger.info(f"🧭 Starting heading calibration - driving straight for {self._calibration_duration}s at {self._calibration_speed*100:.0f}% speed")
+            
+            # During calibration: drive straight at low speed
+            if self._calibration_mode:
+                elapsed = (datetime.now() - self._calibration_start_time).total_seconds()
+                
+                if self._current_heading is not None:
+                    # Heading acquired! Exit calibration
+                    self._calibration_mode = False
+                    logger.info(f"✓ Heading calibration complete! Heading: {self._current_heading:.1f}° (took {elapsed:.1f}s)")
+                elif elapsed >= self._calibration_duration:
+                    # Timeout - continue without heading (not ideal but safer than spinning)
+                    self._calibration_mode = False
+                    logger.warning(f"⚠️ Heading calibration timeout after {elapsed:.1f}s - continuing without heading")
+                else:
+                    # Still calibrating - drive straight
+                    logger.debug(f"🧭 Calibrating heading... {elapsed:.1f}s / {self._calibration_duration}s (speed: {self._calibration_speed})")
+                    return NavigationCommand(
+                        speed=self._calibration_speed,
+                        turn_rate=0.0,  # Drive perfectly straight
+                        timestamp=datetime.now(),
+                        priority=1
+                    )
+            
             # Calculate navigation parameters
             current_lat, current_lon = self._current_position
             target_lat, target_lon = self._target_waypoint.lat, self._target_waypoint.lon
@@ -178,6 +220,12 @@ class Navigator(NavigationInterface):
                 (current_lat, current_lon),
                 (target_lat, target_lon)
             )
+            
+            # Log when approaching waypoint (within 2m)
+            if distance <= 2.0 and not self._approaching_logged:
+                waypoint_name = self._target_waypoint.name or 'Unnamed'
+                logger.info(f"→ Approaching waypoint '{waypoint_name}' - {distance:.2f}m away")
+                self._approaching_logged = True
             
             # Check if waypoint reached
             if distance <= self._target_waypoint.tolerance:
@@ -264,7 +312,9 @@ class Navigator(NavigationInterface):
     
     def _handle_waypoint_reached(self) -> NavigationCommand:
         """Handle when waypoint is reached"""
-        logger.info(f"Waypoint reached: {self._target_waypoint.name or 'Unnamed'}")
+        waypoint_name = self._target_waypoint.name or 'Unnamed'
+        waypoint_coords = f"({self._target_waypoint.lat:.6f}, {self._target_waypoint.lon:.6f})"
+        logger.info(f"✓ Waypoint reached: '{waypoint_name}' at {waypoint_coords} (tolerance: {self._target_waypoint.tolerance}m)")
         self._status = NavigationStatus.REACHED_WAYPOINT
         
         if self._mode == NavigationMode.PATH_FOLLOWING:
@@ -272,6 +322,7 @@ class Navigator(NavigationInterface):
             if self.waypoint_manager.advance_to_next():
                 self._target_waypoint = self.waypoint_manager.get_next_waypoint()
                 self._status = NavigationStatus.NAVIGATING
+                self._approaching_logged = False  # Reset for next waypoint
                 logger.info("Moving to next waypoint")
             else:
                 # Path complete
@@ -386,6 +437,7 @@ class Navigator(NavigationInterface):
                 self._target_waypoint = self.waypoint_manager.get_next_waypoint()
                 self._mode = NavigationMode.PATH_FOLLOWING
                 self._status = NavigationStatus.NAVIGATING
+                self._approaching_logged = False  # Reset for new waypoint
                 logger.info(f"Waypoint added and navigation auto-started")
             else:
                 logger.info(f"Waypoint added to queue (not started)")
@@ -414,6 +466,7 @@ class Navigator(NavigationInterface):
                 self._mode = NavigationMode.PATH_FOLLOWING
                 self._status = NavigationStatus.NAVIGATING
                 self._is_paused = False
+                self._approaching_logged = False  # Reset for new waypoint
                 self.heading_pid.reset()
                 logger.info(f"Navigation started - target: {self._target_waypoint.name or 'unnamed'}")
                 return True
