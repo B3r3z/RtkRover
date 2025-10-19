@@ -430,41 +430,68 @@
     // NAVIGATION CONTROL
     // ==========================================
     async function startNavigation() {
+        console.log('[START NAV] Button clicked');
+        console.log('[START NAV] State:', {
+            navEnabled: state.navEnabled,
+            roverAvailable: state.roverAvailable,
+            waypointCount: state.wps.length,
+            navRunning: state.navRunning
+        });
+        
         if (!state.navEnabled || !state.roverAvailable) {
-            alert('System nawigacji niedostępny');
+            const msg = `System nawigacji niedostępny\n\nnavEnabled: ${state.navEnabled}\nroverAvailable: ${state.roverAvailable}`;
+            console.error('[START NAV] ' + msg);
+            alert(msg);
             return;
         }
         
         if (state.wps.length === 0) {
+            console.warn('[START NAV] No waypoints in queue');
             alert('⚠️ Brak punktów do nawigacji!\n\nDodaj co najmniej jeden punkt przed startem.');
             return;
         }
         
-        const result = await postJSON(API.startNavigation, {});
-        
-        if (result.error) {
-            alert('Błąd rozpoczęcia nawigacji: ' + result.error);
-            console.error('Navigation start error:', result);
-        } else {
-            console.log('✅ Navigation started');
-            alert(`🚀 Nawigacja rozpoczęta!\n\nPunkty do osiągnięcia: ${state.wps.length}`);
-            state.navRunning = true;
+        try {
+            console.log('[START NAV] Sending request to:', API.startNavigation);
+            const result = await postJSON(API.startNavigation, {});
+            console.log('[START NAV] Backend response:', result);
             
-            // Show first waypoint as target
-            if (state.wps.length > 0) {
-                const wp = state.wps[0];
-                if (state.targetMarker) {
-                    state.targetMarker.setLatLng([wp.lat, wp.lon]);
-                } else {
-                    state.targetMarker = L.marker([wp.lat, wp.lon], {
-                        icon: L.icon({
-                            iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSIjZmYwMDAwIiBkPSJNMTIgMmwtMSAxdi00bDEgMXYyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyeiIvPjwvc3ZnPg==',
-                            iconSize: [32, 32],
-                            iconAnchor: [16, 32]
-                        })
-                    }).addTo(state.map);
+            if (result.error) {
+                alert('Błąd rozpoczęcia nawigacji: ' + result.error);
+                console.error('[START NAV] Error from backend:', result);
+            } else {
+                console.log('✅ [START NAV] Navigation started successfully');
+                alert(`🚀 Nawigacja rozpoczęta!\n\nPunkty do osiągnięcia: ${state.wps.length}`);
+                state.navRunning = true;
+                
+                // Show first waypoint as target
+                if (state.wps.length > 0) {
+                    const wp = state.wps[0];
+                    console.log('[START NAV] Setting target marker at:', wp);
+                    
+                    if (state.targetMarker) {
+                        state.targetMarker.setLatLng([wp.lat, wp.lon]);
+                    } else {
+                        state.targetMarker = L.marker([wp.lat, wp.lon], {
+                            icon: L.icon({
+                                iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBmaWxsPSIjZmYwMDAwIiBkPSJNMTIgMmwtMSAxdi00bDEgMXYyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyem0wIDJsLTEgMS0xLTFoMnptMCAybC0xIDEtMS0xaDJ6bTAgMmwtMSAxLTEtMWgyeiIvPjwvc3ZnPg==',
+                                iconSize: [32, 32],
+                                iconAnchor: [16, 32]
+                            })
+                        }).addTo(state.map);
+                    }
                 }
+                
+                // Force refresh navigation status after start
+                console.log('[START NAV] Refreshing navigation status...');
+                setTimeout(async () => {
+                    await pollNavStatus();
+                }, 500);
             }
+        } catch (err) {
+            const errMsg = 'Błąd komunikacji z backendem: ' + err;
+            console.error('[START NAV] Exception:', err);
+            alert(errMsg);
         }
     }
     
