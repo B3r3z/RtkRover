@@ -364,7 +364,7 @@ class RoverManager(PositionObserver):
     
     def emergency_stop(self, reason: str = "Manual"):
         """
-        Emergency stop - immediately halt all movement
+        Emergency stop - immediately halt all movement AND stop navigation
         
         Args:
             reason: Reason for emergency stop (for logging/telemetry)
@@ -376,6 +376,13 @@ class RoverManager(PositionObserver):
             self.motor_controller.emergency_stop()
         except Exception as e:
             logger.error(f"Failed to stop motors during emergency stop: {e}")
+        
+        # 2. Stop navigation system to prevent it from issuing new commands
+        try:
+            self.navigator.stop()
+            logger.info("Navigation stopped during emergency stop")
+        except Exception as e:
+            logger.error(f"Failed to stop navigator during emergency stop: {e}")
     
         self._last_emergency_stop = {
             'timestamp': datetime.now().isoformat(),

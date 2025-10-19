@@ -536,26 +536,41 @@
     }
     
     async function emergencyStop() {
+        console.log('[EMERGENCY STOP] Button clicked');
+        
         if (!state.navEnabled || !state.roverAvailable) {
+            console.warn('[EMERGENCY STOP] Navigation system not available');
             return;
         }
         
-        if (!confirm('⚠️ AWARYJNE ZATRZYMANIE?\n\nTo natychmiast zatrzyma silniki!')) {
+        if (!confirm('⚠️ AWARYJNE ZATRZYMANIE?\n\nTo natychmiast zatrzyma silniki i nawigację!')) {
             return;
         }
         
-        const result = await postJSON(API.emergencyStop, {});
+        console.log('[EMERGENCY STOP] Sending emergency stop request...');
         
-        if (result.error) {
-            alert('Błąd: ' + result.error);
-        } else {
-            alert('🛑 AWARYJNE ZATRZYMANIE aktywowane');
-            state.navRunning = false;
-            if (state.targetMarker) {
-                state.map.removeLayer(state.targetMarker);
-                state.targetMarker = null;
-            }
+        const stopResult = await postJSON(API.emergencyStop, {});
+        
+        if (stopResult.error) {
+            console.error('[EMERGENCY STOP] Failed:', stopResult.error);
+            alert('Błąd awaryjnego zatrzymania: ' + stopResult.error);
+            return;
         }
+        
+        console.log('[EMERGENCY STOP] Success - motors and navigation stopped');
+        alert('🛑 AWARYJNE ZATRZYMANIE aktywowane\n\nSilniki i nawigacja zatrzymane');
+        
+        // Update UI state
+        state.navRunning = false;
+        if (state.targetMarker) {
+            state.map.removeLayer(state.targetMarker);
+            state.targetMarker = null;
+        }
+        
+        // Force refresh navigation status
+        setTimeout(async () => {
+            await pollNavStatus();
+        }, 500);
     }
     
     // ==========================================
