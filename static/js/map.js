@@ -607,8 +607,15 @@
         });
         
         // Navigation controls
+        console.log('[INIT] Setting up navigation controls...');
+        console.log('[INIT] btnStartNav element:', ui.btnStartNav);
+        console.log('[INIT] btnEmergencyStop element:', ui.btnEmergencyStop);
+        
         if (ui.btnStartNav) {
+            console.log('[INIT] Adding click listener to START button');
             ui.btnStartNav.addEventListener('click', startNavigation);
+        } else {
+            console.error('[INIT] START button not found! Check HTML for id="btnStartNav"');
         }
         
         if (ui.btnEmergencyStop) {
