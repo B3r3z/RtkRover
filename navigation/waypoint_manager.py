@@ -57,6 +57,10 @@ class SimpleWaypointManager(WaypointManager):
         """Get number of waypoints remaining (including current)"""
         return max(0, len(self._waypoints) - self._current_index)
     
+    def has_waypoints(self) -> bool:
+        """Check if there are any waypoints in the queue"""
+        return len(self._waypoints) > 0
+    
     def reset_to_start(self):
         """Reset to first waypoint"""
         self._current_index = 0

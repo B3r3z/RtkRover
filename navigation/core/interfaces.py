@@ -91,6 +91,11 @@ class WaypointManager(ABC):
         pass
     
     @abstractmethod
+    def has_waypoints(self) -> bool:
+        """Check if there are any waypoints in the queue"""
+        pass
+    
+    @abstractmethod
     def remove_waypoint(self, index: int) -> bool:
         """Remove waypoint at index"""
         pass
