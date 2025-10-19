@@ -258,9 +258,16 @@ class RoverManager(PositionObserver):
                 if nav_command:
                     # Execute command via motor controller
                     self.motor_controller.execute_navigation_command(nav_command)
-                else:
-                    # No command - ensure motors are stopped
-                    self.motor_controller.emergency_stop()
+                elif nav_command is None:
+                    # No command (paused, idle, or error)
+                    # Stop motors gently (not emergency stop which logs warnings)
+                    from motor_control.motor_interface import DifferentialDriveCommand
+                    stop_cmd = DifferentialDriveCommand(
+                        left_speed=0.0,
+                        right_speed=0.0,
+                        timestamp=datetime.now()
+                    )
+                    self.motor_controller.execute_command(stop_cmd)
                 
             except Exception as e:
                 logger.error(f"Error in control loop: {e}", exc_info=True)
