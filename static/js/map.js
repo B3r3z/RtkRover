@@ -83,6 +83,7 @@
         // Waypoint controls
         wpName: g('wpName'),
         add: g('btnAddWp'),
+        toggleClickAdd: g('btnToggleClickAdd'),
         exp: g('btnExportWp'),
         wclr: g('btnClearWp'),
         list: g('waypointList'),
@@ -383,9 +384,7 @@
                 // Fall back to local storage
             } else {
                 console.log('✅ Waypoint added to navigation system:', result);
-                if (result.success) {
-                    alert(`✅ Waypoint '${label}' dodany do systemu nawigacji`);
-                }
+                // Success - no need for popup, user sees waypoint on map and in list
             }
         } else {
             console.warn('⚠️ Navigation not available - waypoint added to local storage only');
@@ -577,13 +576,21 @@
     // MAP INTERACTION
     // ==========================================
     async function onMapClick(e) {
-        if (!state.clickToAddMode) return;
+        console.log('[MAP CLICK]', e.latlng, 'clickToAddMode:', state.clickToAddMode);
+        
+        if (!state.clickToAddMode) {
+            console.log('[MAP CLICK] Ignored - click mode disabled');
+            return;
+        }
         
         const { lat, lng } = e.latlng;
         const name = prompt('Nazwa punktu:', `WP${state.wps.length + 1}`);
         
         if (name !== null) {
+            console.log('[MAP CLICK] Adding waypoint:', name, lat, lng);
             await addWaypoint(name, lat, lng);
+        } else {
+            console.log('[MAP CLICK] Cancelled by user');
         }
     }
     
@@ -614,6 +621,25 @@
         
         // Waypoint controls
         ui.add.addEventListener('click', () => addWaypoint(ui.wpName.value));
+        
+        // Toggle click-to-add mode
+        if (ui.toggleClickAdd) {
+            ui.toggleClickAdd.addEventListener('click', () => {
+                state.clickToAddMode = !state.clickToAddMode;
+                ui.toggleClickAdd.classList.toggle('active', state.clickToAddMode);
+                
+                if (state.clickToAddMode) {
+                    console.log('[CLICK MODE] Enabled - click on map to add waypoints');
+                    ui.toggleClickAdd.textContent = '🖱️ Klik ✓';
+                    ui.toggleClickAdd.title = 'Tryb dodawania WŁĄCZONY - kliknij na mapę aby dodać punkt';
+                } else {
+                    console.log('[CLICK MODE] Disabled');
+                    ui.toggleClickAdd.textContent = '🖱️ Klik';
+                    ui.toggleClickAdd.title = 'Przełącz tryb dodawania kliknięciem na mapę';
+                }
+            });
+        }
+        
         ui.exp.addEventListener('click', exportWaypoints);
         ui.wclr.addEventListener('click', () => {
             if (confirm('Usunąć wszystkie punkty?')) {
