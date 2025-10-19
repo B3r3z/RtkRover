@@ -357,14 +357,27 @@ class RoverManager(PositionObserver):
         logger.info("Navigation resumed")
     
     def cancel_navigation(self):
-        """Cancel current navigation"""
+        """
+        Cancel current navigation - clears waypoints and stops everything
+        Unlike emergency_stop which pauses, this completely resets navigation
+        """
+        # 1. Stop navigation system completely (clears target, sets IDLE)
         self.navigator.stop()
-        self.emergency_stop("Navigation cancelled")
-        logger.info("Navigation cancelled")
+        logger.info("Navigation stopped and cleared")
+        
+        # 2. Stop motors
+        try:
+            self.motor_controller.emergency_stop()
+            logger.info("Motors stopped during cancel")
+        except Exception as e:
+            logger.error(f"Failed to stop motors during cancel: {e}")
+        
+        logger.info("Navigation cancelled - system reset to IDLE")
     
     def emergency_stop(self, reason: str = "Manual"):
         """
-        Emergency stop - immediately halt all movement AND stop navigation
+        Emergency stop - immediately halt all movement AND pause navigation
+        Navigation can be resumed later with resume_navigation()
         
         Args:
             reason: Reason for emergency stop (for logging/telemetry)
@@ -377,12 +390,12 @@ class RoverManager(PositionObserver):
         except Exception as e:
             logger.error(f"Failed to stop motors during emergency stop: {e}")
         
-        # 2. Stop navigation system to prevent it from issuing new commands
+        # 2. PAUSE navigation (not stop) - so it can be resumed later
         try:
-            self.navigator.stop()
-            logger.info("Navigation stopped during emergency stop")
+            self.navigator.pause()
+            logger.info("Navigation PAUSED during emergency stop (can be resumed)")
         except Exception as e:
-            logger.error(f"Failed to stop navigator during emergency stop: {e}")
+            logger.error(f"Failed to pause navigator during emergency stop: {e}")
     
         self._last_emergency_stop = {
             'timestamp': datetime.now().isoformat(),
@@ -390,7 +403,7 @@ class RoverManager(PositionObserver):
         }
         self.metrics.add_emergency_stop()
         
-        logger.info("Emergency stop: motors stopped, navigation continues")
+        logger.info("Emergency stop: motors stopped, navigation paused (resumable)")
     
     # Status and monitoring
     

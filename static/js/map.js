@@ -91,7 +91,10 @@
         // Navigation controls
         navSystemStatus: g('navSystemStatus'),
         btnStartNav: g('btnStartNav'),
-        btnEmergencyStop: g('btnEmergencyStop')
+        btnPauseNav: g('btnPauseNav'),
+        btnResumeNav: g('btnResumeNav'),
+        btnEmergencyStop: g('btnEmergencyStop'),
+        btnCancelNav: g('btnCancelNav')
     };
     
     // Check for missing elements
@@ -556,8 +559,8 @@
             return;
         }
         
-        console.log('[EMERGENCY STOP] Success - motors and navigation stopped');
-        alert('🛑 AWARYJNE ZATRZYMANIE aktywowane\n\nSilniki i nawigacja zatrzymane');
+        console.log('[EMERGENCY STOP] Success - motors stopped, navigation paused');
+        alert('🛑 AWARYJNE ZATRZYMANIE aktywowane\n\nSilniki zatrzymane, nawigacja wstrzymana\n\nKliknij WZNÓW aby kontynuować lub ANULUJ aby zakończyć');
         
         // Update UI state
         state.navRunning = false;
@@ -572,25 +575,123 @@
         }, 500);
     }
     
+    async function pauseNavigation() {
+        console.log('[PAUSE NAV] Button clicked');
+        
+        if (!state.navEnabled || !state.roverAvailable) {
+            console.warn('[PAUSE NAV] Navigation system not available');
+            return;
+        }
+        
+        console.log('[PAUSE NAV] Sending pause request...');
+        const result = await postJSON(API.pause, {});
+        
+        if (result.error) {
+            console.error('[PAUSE NAV] Failed:', result.error);
+            alert('Błąd pauzowania nawigacji: ' + result.error);
+        } else {
+            console.log('[PAUSE NAV] Success');
+            alert('⏸️ Nawigacja wstrzymana\n\nKliknij WZNÓW aby kontynuować');
+        }
+        
+        // Refresh status
+        setTimeout(async () => {
+            await pollNavStatus();
+        }, 500);
+    }
+    
+    async function resumeNavigation() {
+        console.log('[RESUME NAV] Button clicked');
+        
+        if (!state.navEnabled || !state.roverAvailable) {
+            console.warn('[RESUME NAV] Navigation system not available');
+            return;
+        }
+        
+        console.log('[RESUME NAV] Sending resume request...');
+        const result = await postJSON(API.resume, {});
+        
+        if (result.error) {
+            console.error('[RESUME NAV] Failed:', result.error);
+            alert('Błąd wznawiania nawigacji: ' + result.error);
+        } else {
+            console.log('[RESUME NAV] Success');
+            alert('▶️ Nawigacja wznowiona');
+            state.navRunning = true;
+        }
+        
+        // Refresh status
+        setTimeout(async () => {
+            await pollNavStatus();
+        }, 500);
+    }
+    
+    async function cancelNavigation() {
+        console.log('[CANCEL NAV] Button clicked');
+        
+        if (!state.navEnabled || !state.roverAvailable) {
+            console.warn('[CANCEL NAV] Navigation system not available');
+            return;
+        }
+        
+        if (!confirm('❌ Anulować nawigację?\n\nTo wyczyści wszystkie punkty i zatrzyma robota.')) {
+            return;
+        }
+        
+        console.log('[CANCEL NAV] Sending cancel request...');
+        const result = await postJSON(API.cancel, {});
+        
+        if (result.error) {
+            console.error('[CANCEL NAV] Failed:', result.error);
+            alert('Błąd anulowania nawigacji: ' + result.error);
+        } else {
+            console.log('[CANCEL NAV] Success - navigation cancelled');
+            alert('❌ Nawigacja anulowana\n\nWszystko zatrzymane i wyczyszczone');
+            
+            // Update UI state
+            state.navRunning = false;
+            if (state.targetMarker) {
+                state.map.removeLayer(state.targetMarker);
+                state.targetMarker = null;
+            }
+        }
+        
+        // Refresh status
+        setTimeout(async () => {
+            await pollNavStatus();
+        }, 500);
+    }
+    
     // ==========================================
     // MAP INTERACTION
     // ==========================================
     async function onMapClick(e) {
-        console.log('[MAP CLICK]', e.latlng, 'clickToAddMode:', state.clickToAddMode);
+        console.log('🖱️ [MAP CLICK] Event fired!', e.latlng);
+        console.log('🖱️ [MAP CLICK] clickToAddMode:', state.clickToAddMode);
+        console.log('🖱️ [MAP CLICK] Full state:', {
+            clickToAddMode: state.clickToAddMode,
+            navEnabled: state.navEnabled,
+            roverAvailable: state.roverAvailable,
+            waypointCount: state.wps.length
+        });
         
         if (!state.clickToAddMode) {
-            console.log('[MAP CLICK] Ignored - click mode disabled');
+            console.warn('🖱️ [MAP CLICK] Ignored - click mode is DISABLED');
+            console.warn('🖱️ [MAP CLICK] Click the "🖱️ Klik" button to enable click-to-add mode');
             return;
         }
+        
+        console.log('🖱️ [MAP CLICK] Click mode ENABLED - showing prompt...');
         
         const { lat, lng } = e.latlng;
         const name = prompt('Nazwa punktu:', `WP${state.wps.length + 1}`);
         
         if (name !== null) {
-            console.log('[MAP CLICK] Adding waypoint:', name, lat, lng);
+            console.log('🖱️ [MAP CLICK] User entered name:', name);
+            console.log('🖱️ [MAP CLICK] Adding waypoint at:', lat, lng);
             await addWaypoint(name, lat, lng);
         } else {
-            console.log('[MAP CLICK] Cancelled by user');
+            console.log('🖱️ [MAP CLICK] User cancelled prompt');
         }
     }
     
@@ -623,21 +724,32 @@
         ui.add.addEventListener('click', () => addWaypoint(ui.wpName.value));
         
         // Toggle click-to-add mode
+        console.log('[INIT] Setting up click-to-add toggle button...');
+        console.log('[INIT] toggleClickAdd element:', ui.toggleClickAdd);
+        
         if (ui.toggleClickAdd) {
+            console.log('[INIT] Adding click listener to toggle button');
             ui.toggleClickAdd.addEventListener('click', () => {
+                const oldMode = state.clickToAddMode;
                 state.clickToAddMode = !state.clickToAddMode;
                 ui.toggleClickAdd.classList.toggle('active', state.clickToAddMode);
                 
+                console.log('🖱️🖱️🖱️ [CLICK MODE TOGGLE] Clicked!');
+                console.log('🖱️ [CLICK MODE] Changed from', oldMode, 'to', state.clickToAddMode);
+                
                 if (state.clickToAddMode) {
-                    console.log('[CLICK MODE] Enabled - click on map to add waypoints');
+                    console.log('✅ [CLICK MODE] ENABLED - click on map to add waypoints');
                     ui.toggleClickAdd.textContent = '🖱️ Klik ✓';
                     ui.toggleClickAdd.title = 'Tryb dodawania WŁĄCZONY - kliknij na mapę aby dodać punkt';
+                    alert('✅ Tryb klikania WŁĄCZONY\n\nKliknij na mapę aby dodać punkt');
                 } else {
-                    console.log('[CLICK MODE] Disabled');
+                    console.log('❌ [CLICK MODE] DISABLED');
                     ui.toggleClickAdd.textContent = '🖱️ Klik';
                     ui.toggleClickAdd.title = 'Przełącz tryb dodawania kliknięciem na mapę';
                 }
             });
+        } else {
+            console.error('[INIT] ❌ Toggle button NOT FOUND! Check HTML for id="btnToggleClickAdd"');
         }
         
         ui.exp.addEventListener('click', exportWaypoints);
@@ -649,18 +761,25 @@
         
         // Navigation controls
         console.log('[INIT] Setting up navigation controls...');
-        console.log('[INIT] btnStartNav element:', ui.btnStartNav);
-        console.log('[INIT] btnEmergencyStop element:', ui.btnEmergencyStop);
         
         if (ui.btnStartNav) {
-            console.log('[INIT] Adding click listener to START button');
             ui.btnStartNav.addEventListener('click', startNavigation);
-        } else {
-            console.error('[INIT] START button not found! Check HTML for id="btnStartNav"');
+        }
+        
+        if (ui.btnPauseNav) {
+            ui.btnPauseNav.addEventListener('click', pauseNavigation);
+        }
+        
+        if (ui.btnResumeNav) {
+            ui.btnResumeNav.addEventListener('click', resumeNavigation);
         }
         
         if (ui.btnEmergencyStop) {
             ui.btnEmergencyStop.addEventListener('click', emergencyStop);
+        }
+        
+        if (ui.btnCancelNav) {
+            ui.btnCancelNav.addEventListener('click', cancelNavigation);
         }
         
         // Check rover button
@@ -739,6 +858,9 @@
         API,
         addWaypoint,
         startNavigation,
+        pauseNavigation,
+        resumeNavigation,
+        cancelNavigation,
         goToWaypoint,
         emergencyStop,
         checkRoverAvailability

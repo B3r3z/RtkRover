@@ -745,7 +745,11 @@ def _register_routes(app):
     
     @app.route('/api/navigation/emergency_stop', methods=['POST'])
     def api_emergency_stop():
-        """EMERGENCY STOP - immediately halt all movement"""
+        """
+        EMERGENCY STOP - immediately halt all movement and PAUSE navigation
+        Navigation can be resumed later with /api/navigation/resume
+        Use /api/navigation/cancel to completely reset navigation instead
+        """
         try:
             rover = get_rover_manager()
             if not rover:
@@ -755,7 +759,7 @@ def _register_routes(app):
             logger.warning("EMERGENCY STOP activated via API")
             return jsonify({
                 "success": True, 
-                "message": "EMERGENCY STOP activated - all motors stopped"
+                "message": "EMERGENCY STOP activated - motors stopped, navigation paused (use /resume to continue)"
             })
             
         except Exception as e:

@@ -57,8 +57,14 @@ footer.app-footer { background:#1d1f20; color:#555; font-size:11px; padding:6px 
 .btn-start { background:#0a8f3d !important; border-color:#0b6d2f !important; color:#fff !important; font-weight:600; font-size:13px; padding:8px 12px; flex:1; }
 .btn-start:hover { background:#0da544 !important; }
 .btn-start:disabled { background:#444 !important; border-color:#555 !important; color:#999 !important; cursor:not-allowed; opacity:0.5; }
+.btn-pause { background:#c98500 !important; border-color:#a87200 !important; color:#fff !important; font-weight:600; font-size:12px; padding:8px 10px; flex:1; }
+.btn-pause:hover { background:#e09900 !important; }
+.btn-resume { background:#0a6ad1 !important; border-color:#0857ad !important; color:#fff !important; font-weight:600; font-size:12px; padding:8px 10px; flex:1; }
+.btn-resume:hover { background:#0c7df0 !important; }
 .btn-emergency { background:#b30021 !important; border-color:#8f1b30 !important; color:#fff !important; font-weight:600; font-size:13px; padding:8px 12px; flex:1; }
 .btn-emergency:hover { background:#d10027 !important; }
+.btn-cancel { background:#555 !important; border-color:#666 !important; color:#fff !important; font-weight:600; font-size:12px; padding:8px 10px; flex:1; }
+.btn-cancel:hover { background:#666 !important; }
 .nav-info { background:#1a1c1d; padding:6px 8px; border-radius:4px; border-left:3px solid #0a6ad1; }
 .nav-info small { font-size:10px; line-height:1.4; color:#999; }
 

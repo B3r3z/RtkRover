@@ -59,12 +59,27 @@
                         <button id="btnStartNav" class="btn-start" title="Rozpocznij nawigację po dodanych punktach">
                             ▶️ START
                         </button>
-                        <button id="btnEmergencyStop" class="btn-emergency" title="Wciśnij ESC lub kliknij">
+                        <button id="btnPauseNav" class="btn-pause" title="Wstrzymaj nawigację (można wznowić)">
+                            ⏸️ PAUZA
+                        </button>
+                        <button id="btnResumeNav" class="btn-resume" title="Wznów wstrzymaną nawigację">
+                            ▶️ WZNÓW
+                        </button>
+                    </div>
+                    <div class="nav-controls" style="margin-top: 8px;">
+                        <button id="btnEmergencyStop" class="btn-emergency" title="Awaryjne zatrzymanie (ESC) - pauzuje nawigację">
                             🛑 STOP
+                        </button>
+                        <button id="btnCancelNav" class="btn-cancel" title="Anuluj nawigację i wyczyść wszystko">
+                            ❌ ANULUJ
                         </button>
                     </div>
                     <div class="nav-info">
-                        <small>💡 Dodaj punkty, potem kliknij START aby rozpocząć nawigację</small>
+                        <small>💡 START = rozpocznij | PAUZA = wstrzymaj | WZNÓW = kontynuuj</small>
+                        <br>
+                        <small>🛑 STOP = awaryjne zatrzymanie (można wznowić)</small>
+                        <br>
+                        <small>❌ ANULUJ = wyczyść wszystko i zakończ</small>
                         <br>
                         <small>⚡ "Go" (⤴) przy punkcie = natychmiastowa nawigacja do jednego punktu</small>
                         <br>
