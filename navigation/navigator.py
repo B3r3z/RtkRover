@@ -122,7 +122,7 @@ class Navigator(NavigationInterface):
         return age > max_age_seconds
     
     def set_target(self, waypoint: Waypoint):
-        """Set single target waypoint"""
+        """Set single target waypoint and auto-start navigation"""
         with self._lock:
             self._target_waypoint = waypoint
             self._mode = NavigationMode.WAYPOINT
@@ -130,6 +130,13 @@ class Navigator(NavigationInterface):
             self._approaching_logged = False  # Reset for new waypoint
             self._calibration_mode = False  # Reset calibration for new target
             self._calibration_start_time = None
+            
+            # ✅ AUTO-START if not running
+            if not self._is_running:
+                self._is_running = True
+                self._is_paused = False
+                logger.info(f"🚀 Navigator auto-started with target: {waypoint.name or 'Unnamed'}")
+            
             logger.info(f"Target set: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
     
     def set_waypoint_path(self, waypoints: list):
@@ -157,8 +164,14 @@ class Navigator(NavigationInterface):
             NavigationCommand or None if cannot navigate
         """
         with self._lock:
+            # Diagnostic logging
+            logger.debug(f"get_nav_cmd: running={self._is_running}, paused={self._is_paused}, "
+                        f"pos={self._current_position is not None}, target={self._target_waypoint is not None}, "
+                        f"heading={self._current_heading}")
+            
             # Check if we can navigate
             if not self._is_running or self._is_paused:
+                logger.debug(f"⏸️  Navigator not active (running={self._is_running}, paused={self._is_paused})")
                 return None
             
             if not self._current_position:
@@ -182,7 +195,9 @@ class Navigator(NavigationInterface):
             if self._current_heading is None and not self._calibration_mode:
                 self._calibration_mode = True
                 self._calibration_start_time = datetime.now()
-                logger.info(f"🧭 Starting heading calibration - driving straight for {self._calibration_duration}s at {self._calibration_speed*100:.0f}% speed")
+                logger.warning(f"🧭 HEADING CALIBRATION STARTED - no GPS heading available")
+                logger.warning(f"   Robot will drive straight for {self._calibration_duration}s at {self._calibration_speed*100:.0f}% speed")
+                logger.warning(f"   GPS VTG will update heading once robot moves")
             
             # During calibration: drive straight at low speed
             if self._calibration_mode:
@@ -191,14 +206,16 @@ class Navigator(NavigationInterface):
                 if self._current_heading is not None:
                     # Heading acquired! Exit calibration
                     self._calibration_mode = False
-                    logger.info(f"✓ Heading calibration complete! Heading: {self._current_heading:.1f}° (took {elapsed:.1f}s)")
+                    logger.info(f"✅ Heading calibration complete! Heading: {self._current_heading:.1f}° (took {elapsed:.1f}s)")
                 elif elapsed >= self._calibration_duration:
                     # Timeout - continue without heading (not ideal but safer than spinning)
                     self._calibration_mode = False
-                    logger.warning(f"⚠️ Heading calibration timeout after {elapsed:.1f}s - continuing without heading")
+                    logger.error(f"❌ Heading calibration TIMEOUT after {elapsed:.1f}s")
+                    logger.error(f"   Continuing without heading - navigation may be inaccurate")
+                    logger.error(f"   Check GPS VTG messages are enabled")
                 else:
                     # Still calibrating - drive straight
-                    logger.debug(f"🧭 Calibrating heading... {elapsed:.1f}s / {self._calibration_duration}s (speed: {self._calibration_speed})")
+                    logger.info(f"🧭 Calibrating heading... {elapsed:.1f}s / {self._calibration_duration}s")
                     return NavigationCommand(
                         speed=self._calibration_speed,
                         turn_rate=0.0,  # Drive perfectly straight
@@ -381,8 +398,8 @@ class Navigator(NavigationInterface):
         """Start navigation"""
         with self._lock:
             if self._is_running:
-                logger.warning("Navigator already running")
-                return False
+                logger.debug("Navigator already running - OK")
+                return True  # ✅ Not an error - idempotent
             
             self._is_running = True
             self._is_paused = False
@@ -450,10 +467,15 @@ class Navigator(NavigationInterface):
             True if navigation started, False if no waypoints or already navigating
         """
         with self._lock:
-            # Check if already navigating
-            if self._target_waypoint and self._status == NavigationStatus.NAVIGATING:
-                logger.warning("Navigation already active")
-                return False
+            # ✅ If single waypoint already active (from /goto), that's OK - idempotent
+            if self._target_waypoint and self._mode == NavigationMode.WAYPOINT:
+                logger.info("Single waypoint navigation already active (from /goto) - OK")
+                return True
+            
+            # ✅ If path following already active, also OK - idempotent
+            if self._target_waypoint and self._mode == NavigationMode.PATH_FOLLOWING:
+                logger.info("Path following already active - OK")
+                return True
             
             # Check if we have waypoints
             if not self.waypoint_manager.has_waypoints():

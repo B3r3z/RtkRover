@@ -257,6 +257,7 @@ class RoverManager(PositionObserver):
                 
                 if nav_command:
                     # Execute command via motor controller
+                    logger.debug(f"🚗 Nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
                     self.motor_controller.execute_navigation_command(nav_command)
                 elif nav_command is None:
                     # No command (paused, idle, or error)
@@ -266,7 +267,7 @@ class RoverManager(PositionObserver):
                         left_speed=0.0,
                         right_speed=0.0
                     )
-                    self.motor_controller.execute_command(stop_cmd)
+                    self.motor_controller.execute_differential_command(stop_cmd)
                 
             except Exception as e:
                 logger.error(f"Error in control loop: {e}", exc_info=True)
@@ -310,9 +311,20 @@ class RoverManager(PositionObserver):
             True if waypoint set successfully
         """
         try:
+            from navigation.core.data_types import NavigationMode, NavigationStatus
+            
+            # ✅ Guard: Warn if overwriting active path following
+            nav_state = self.navigator.get_state()
+            if (nav_state.mode == NavigationMode.PATH_FOLLOWING and 
+                nav_state.status == NavigationStatus.NAVIGATING):
+                logger.warning(f"⚠️  Overwriting active path following with single waypoint '{name or 'Unnamed'}'")
+                logger.warning(f"   {nav_state.waypoints_remaining} waypoints will be lost!")
+                logger.warning(f"   Use /cancel first to clear path, or this is intentional override")
+                # Continue anyway - user may want to override
+            
             waypoint = Waypoint(lat=lat, lon=lon, name=name)
             self.navigator.set_target(waypoint)
-            logger.info(f"Navigating to waypoint: {name or 'Unnamed'}")
+            logger.info(f"🎯 Navigating to waypoint: {name or 'Unnamed'}")
             return True
         except Exception as e:
             logger.error(f"Failed to set waypoint: {e}")
@@ -354,8 +366,13 @@ class RoverManager(PositionObserver):
     def pause_navigation(self):
         """Pause navigation (motors stop but waypoints retained)"""
         self.navigator.pause()
-        self.motor_controller.emergency_stop()
-        logger.info("Navigation paused")
+        
+        # Gentle stop (not emergency) - pause is a normal operation
+        from motor_control.motor_interface import DifferentialDriveCommand
+        stop_cmd = DifferentialDriveCommand(left_speed=0.0, right_speed=0.0)
+        self.motor_controller.execute_differential_command(stop_cmd)
+        
+        logger.info("Navigation paused - motors stopped gently")
     
     def resume_navigation(self):
         """Resume navigation"""

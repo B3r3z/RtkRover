@@ -721,8 +721,35 @@ def _register_routes(app):
             if not rover:
                 return jsonify({"error": "Rover system not initialized"}), 503
             
+            # ✅ Validate state before resuming
+            nav_state = rover.navigator.get_state()
+            
+            # Check if paused
+            from navigation.core.data_types import NavigationStatus
+            if nav_state.status != NavigationStatus.PAUSED:
+                return jsonify({
+                    "error": "Cannot resume - navigation not paused",
+                    "current_status": nav_state.status.value,
+                    "hint": "Use /pause first, or /goto to start new navigation"
+                }), 400
+            
+            # Check if has target
+            if not nav_state.target_waypoint:
+                return jsonify({
+                    "error": "Cannot resume - no target waypoint set",
+                    "hint": "Use /goto or /path to set navigation target first"
+                }), 400
+            
             rover.resume_navigation()
-            return jsonify({"success": True, "message": "Navigation resumed"})
+            return jsonify({
+                "success": True, 
+                "message": "Navigation resumed",
+                "target": {
+                    "lat": nav_state.target_waypoint.lat,
+                    "lon": nav_state.target_waypoint.lon,
+                    "name": nav_state.target_waypoint.name
+                }
+            })
             
         except Exception as e:
             logger.error(f"Resume navigation error: {e}", exc_info=True)

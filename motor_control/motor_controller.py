@@ -106,8 +106,9 @@ class MotorController:
             nav_command: Navigation command with speed and turn_rate
         """
         if not self._is_running:
-            logger.warning("Motor controller not running - COMMAND IGNORED!")
-            logger.warning(f"  speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
+            logger.error("⚠️  MOTOR CONTROLLER NOT RUNNING - COMMAND REJECTED!")
+            logger.error(f"   Command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
+            logger.error(f"   Call motor_controller.start() first!")
             return
         
         # Convert navigation command to differential drive
@@ -159,7 +160,8 @@ class MotorController:
             command: Differential drive command with left/right speeds
         """
         if not self._is_running:
-            logger.warning("Motor controller not running")
+            logger.error("⚠️  MOTOR CONTROLLER NOT RUNNING - COMMAND REJECTED!")
+            logger.error(f"   Command: L={command.left_speed:.2f}, R={command.right_speed:.2f}")
             return
         
         with self._lock:
@@ -181,7 +183,11 @@ class MotorController:
         right_dir = MotorDirection.FORWARD if right_speed >= 0 else MotorDirection.BACKWARD
         self.motor_driver.set_motor('right', right_dir, abs(right_speed))
         
-        logger.debug(f"Ramped differential: L={left_speed:.2f}, R={right_speed:.2f}")
+        # Log motor execution (INFO level for visibility during debugging)
+        if abs(left_speed) > 0.01 or abs(right_speed) > 0.01:
+            logger.info(f"⚙️  Motors: L={left_speed:.2f}, R={right_speed:.2f}")
+        else:
+            logger.debug(f"Motors stopped: L={left_speed:.2f}, R={right_speed:.2f}")
     
     def _navigation_to_differential(self, nav_command: NavigationCommand) -> DifferentialDriveCommand:
         """
