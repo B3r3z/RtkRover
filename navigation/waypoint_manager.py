@@ -17,7 +17,8 @@ class SimpleWaypointManager(WaypointManager):
     def add_waypoint(self, waypoint: Waypoint):
         """Add waypoint to end of queue"""
         self._waypoints.append(waypoint)
-        logger.info(f"Added waypoint: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
+        position = len(self._waypoints)
+        logger.info(f"➕ Added waypoint #{position}: '{waypoint.name or 'Unnamed'}' at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
     
     def get_next_waypoint(self) -> Optional[Waypoint]:
         """Get next waypoint in queue without removing it"""
@@ -29,15 +30,17 @@ class SimpleWaypointManager(WaypointManager):
         """Move to next waypoint in queue"""
         if self._current_index < len(self._waypoints) - 1:
             self._current_index += 1
-            logger.info(f"Advanced to waypoint {self._current_index + 1}/{len(self._waypoints)}")
+            current_wp = self._waypoints[self._current_index]
+            logger.info(f"⏭️  Advanced to waypoint #{self._current_index + 1}/{len(self._waypoints)}: '{current_wp.name or 'Unnamed'}'")
             return True
         return False
     
     def clear_waypoints(self):
         """Clear all waypoints"""
+        count = len(self._waypoints)
         self._waypoints.clear()
         self._current_index = 0
-        logger.info("Cleared all waypoints")
+        logger.info(f"🗑️  Cleared {count} waypoint(s) from queue")
     
     def get_all_waypoints(self) -> List[Waypoint]:
         """Get all waypoints in queue"""
