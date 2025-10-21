@@ -551,16 +551,33 @@
         
         console.log('[EMERGENCY STOP] Sending emergency stop request...');
         
+        // Visual feedback - flash red
+        if (ui.btnEmergencyStop) {
+            ui.btnEmergencyStop.style.backgroundColor = '#ff0000';
+            ui.btnEmergencyStop.style.animation = 'pulse 0.5s ease-in-out 3';
+        }
+        
         const stopResult = await postJSON(API.emergencyStop, {});
         
         if (stopResult.error) {
             console.error('[EMERGENCY STOP] Failed:', stopResult.error);
             alert('Błąd awaryjnego zatrzymania: ' + stopResult.error);
+            // Reset button style
+            if (ui.btnEmergencyStop) {
+                ui.btnEmergencyStop.style.backgroundColor = '';
+                ui.btnEmergencyStop.style.animation = '';
+            }
             return;
         }
         
         console.log('[EMERGENCY STOP] Success - motors stopped, navigation paused');
         alert('🛑 AWARYJNE ZATRZYMANIE aktywowane\n\nSilniki zatrzymane, nawigacja wstrzymana\n\nKliknij WZNÓW aby kontynuować lub ANULUJ aby zakończyć');
+        
+        // Reset button style after confirmation
+        if (ui.btnEmergencyStop) {
+            ui.btnEmergencyStop.style.backgroundColor = '';
+            ui.btnEmergencyStop.style.animation = '';
+        }
         
         // Update UI state
         state.navRunning = false;
@@ -819,10 +836,43 @@
         
         // Keyboard shortcuts
         document.addEventListener('keydown', e => {
+            // Emergency stop on ESC
             if (e.key === 'Escape' && state.navRunning) {
+                e.preventDefault();
                 emergencyStop();
             }
+            
+            // Pause navigation on Space (if navigating)
+            if (e.key === ' ' && state.navRunning && state.navEnabled) {
+                e.preventDefault();
+                pauseNavigation();
+            }
+            
+            // Resume navigation on 'R' key (if paused)
+            if ((e.key === 'r' || e.key === 'R') && !state.navRunning && state.navEnabled) {
+                e.preventDefault();
+                resumeNavigation();
+            }
+            
+            // Cancel navigation on 'C' key
+            if ((e.key === 'c' || e.key === 'C') && e.ctrlKey && state.navEnabled) {
+                e.preventDefault();
+                cancelNavigation();
+            }
+            
+            // Center map on 'M' key
+            if ((e.key === 'm' || e.key === 'M') && state.last) {
+                e.preventDefault();
+                state.map.setView(state.last, 19);
+            }
         });
+        
+        console.log('✅ Keyboard shortcuts enabled:');
+        console.log('   ESC - Emergency stop');
+        console.log('   SPACE - Pause navigation');
+        console.log('   R - Resume navigation');
+        console.log('   Ctrl+C - Cancel navigation');
+        console.log('   M - Center map on rover');
     }
     
     // ==========================================
