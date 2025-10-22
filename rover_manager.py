@@ -56,7 +56,8 @@ class RoverManager(PositionObserver):
             motor_driver=motor_driver,
             max_speed=motor_config['max_speed'],
             turn_sensitivity=motor_config['turn_sensitivity'],
-            safety_timeout=motor_config['safety_timeout']
+            safety_timeout=motor_config['safety_timeout'],
+            ramp_rate=motor_config.get('ramp_rate', 0.5)
         )
         
         # Control loop

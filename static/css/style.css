@@ -520,3 +520,35 @@ button:focus {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Emergency Stop Pulse Animation */
+@keyframes pulse {
+  0%, 100% { 
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.7);
+  }
+  50% { 
+    transform: scale(1.05);
+    box-shadow: 0 0 20px 10px rgba(255, 0, 0, 0);
+  }
+}
+
+/* Keyboard Shortcut Hints */
+.keyboard-hint {
+  font-size: 10px;
+  color: #999;
+  margin-top: 8px;
+  padding: 6px;
+  background: #1a1c1d;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.keyboard-hint kbd {
+  background: #2d3133;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #444;
+  font-family: monospace;
+  font-size: 10px;
+}

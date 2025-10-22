@@ -137,7 +137,8 @@ class Navigator(NavigationInterface):
                 self._is_paused = False
                 logger.info(f"🚀 Navigator auto-started with target: {waypoint.name or 'Unnamed'}")
             
-            logger.info(f"Target set: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
+            logger.info(f"🎯 Target set: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
+            logger.info(f"📍 Starting navigation to waypoint '{waypoint.name or 'Unnamed'}' (tolerance: {waypoint.tolerance}m)")
     
     def set_waypoint_path(self, waypoints: list):
         """Set multiple waypoints for path following"""
@@ -154,7 +155,8 @@ class Navigator(NavigationInterface):
                 self._approaching_logged = False  # Reset for new waypoint
                 self._calibration_mode = False  # Reset calibration for path
                 self._calibration_start_time = None
-                logger.info(f"Path set with {len(waypoints)} waypoints")
+                logger.info(f"🗺️  Path set with {len(waypoints)} waypoints")
+                logger.info(f"📍 Starting path navigation - First waypoint: '{self._target_waypoint.name or 'Unnamed'}'")
     
     def get_navigation_command(self) -> Optional[NavigationCommand]:
         """
@@ -238,10 +240,22 @@ class Navigator(NavigationInterface):
                 (target_lat, target_lon)
             )
             
+            # Log progress at key distance milestones
+            waypoint_name = self._target_waypoint.name or 'Unnamed'
+            if distance > 10.0 and distance % 10.0 < 1.0 and not hasattr(self, '_last_logged_distance'):
+                # Log every ~10m when far away
+                logger.info(f"🚗 Navigating to '{waypoint_name}' - Distance: {distance:.1f}m, Bearing: {bearing_to_target:.0f}°")
+                self._last_logged_distance = distance
+            elif distance <= 10.0 and distance > 5.0 and not hasattr(self, '_logged_10m'):
+                logger.info(f"🚗 Navigating to '{waypoint_name}' - Distance: {distance:.1f}m")
+                self._logged_10m = True
+            elif distance <= 5.0 and distance > 2.0 and not hasattr(self, '_logged_5m'):
+                logger.info(f"➡️  Getting closer to '{waypoint_name}' - Distance: {distance:.1f}m")
+                self._logged_5m = True
+            
             # Log when approaching waypoint (within 2m)
             if distance <= 2.0 and not self._approaching_logged:
-                waypoint_name = self._target_waypoint.name or 'Unnamed'
-                logger.info(f"→ Approaching waypoint '{waypoint_name}' - {distance:.2f}m away")
+                logger.info(f"🎯 Approaching waypoint '{waypoint_name}' - {distance:.2f}m away")
                 self._approaching_logged = True
             
             # Check if waypoint reached
@@ -331,7 +345,7 @@ class Navigator(NavigationInterface):
         """Handle when waypoint is reached"""
         waypoint_name = self._target_waypoint.name or 'Unnamed'
         waypoint_coords = f"({self._target_waypoint.lat:.6f}, {self._target_waypoint.lon:.6f})"
-        logger.info(f"✓ Waypoint reached: '{waypoint_name}' at {waypoint_coords} (tolerance: {self._target_waypoint.tolerance}m)")
+        logger.info(f"✅ Waypoint reached: '{waypoint_name}' at {waypoint_coords} (tolerance: {self._target_waypoint.tolerance}m)")
         self._status = NavigationStatus.REACHED_WAYPOINT
         
         if self._mode == NavigationMode.PATH_FOLLOWING:
@@ -340,16 +354,27 @@ class Navigator(NavigationInterface):
                 self._target_waypoint = self.waypoint_manager.get_next_waypoint()
                 self._status = NavigationStatus.NAVIGATING
                 self._approaching_logged = False  # Reset for next waypoint
-                logger.info("Moving to next waypoint")
+                # Reset distance logging flags for next waypoint
+                if hasattr(self, '_last_logged_distance'):
+                    delattr(self, '_last_logged_distance')
+                if hasattr(self, '_logged_10m'):
+                    delattr(self, '_logged_10m')
+                if hasattr(self, '_logged_5m'):
+                    delattr(self, '_logged_5m')
+                
+                remaining = self.waypoint_manager.get_remaining_count()
+                next_waypoint_name = self._target_waypoint.name or 'Unnamed'
+                logger.info(f"📍 Moving to next waypoint: '{next_waypoint_name}' ({remaining} waypoints remaining)")
             else:
                 # Path complete
                 self._status = NavigationStatus.PATH_COMPLETE
                 self._target_waypoint = None
-                logger.info("Path complete!")
+                logger.info("🏁 Path complete! All waypoints reached.")
         else:
             # Single waypoint mode - stop
             self._target_waypoint = None
             self._status = NavigationStatus.IDLE
+            logger.info("🏁 Navigation complete - waypoint reached")
         
         # Reset PID controller for next waypoint
         self.heading_pid.reset()
@@ -424,7 +449,8 @@ class Navigator(NavigationInterface):
                 self._is_paused = True
                 self._status = NavigationStatus.PAUSED
                 self.heading_pid.reset()
-                logger.info("Navigator paused")
+                waypoint_name = self._target_waypoint.name if self._target_waypoint else "None"
+                logger.info(f"⏸️  Navigator paused (current target: '{waypoint_name}')")
     
     def resume(self):
         """Resume navigation"""
@@ -433,7 +459,8 @@ class Navigator(NavigationInterface):
                 self._is_paused = False
                 self._status = NavigationStatus.NAVIGATING if self._target_waypoint else NavigationStatus.IDLE
                 self.heading_pid.reset()
-                logger.info("Navigator resumed")
+                waypoint_name = self._target_waypoint.name if self._target_waypoint else "None"
+                logger.info(f"▶️  Navigator resumed (target: '{waypoint_name}')")
     
     # Additional utility methods
     

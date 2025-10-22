@@ -20,7 +20,8 @@ class MotorController:
                  motor_driver: MotorDriverInterface,
                  max_speed: float = 1.0,
                  turn_sensitivity: float = 1.0,
-                 safety_timeout: float = 2.0):
+                 safety_timeout: float = 2.0,
+                 ramp_rate: float = 0.5):
         """
         Initialize motor controller
         
@@ -29,31 +30,33 @@ class MotorController:
             max_speed: Maximum speed multiplier (0.0 to 1.0)
             turn_sensitivity: Turn rate sensitivity multiplier
             safety_timeout: Stop motors if no command received for this many seconds
+            ramp_rate: Acceleration rate per cycle (0.0 to 1.0). Higher = faster acceleration
         """
         self.motor_driver = motor_driver
         self.max_speed = max_speed
         self.turn_sensitivity = turn_sensitivity
         self.safety_timeout = safety_timeout
+        self._ramp_rate = max(0.01, min(1.0, ramp_rate))  # Clamp to valid range
         
         self._is_running = False
         self._last_command_time: Optional[datetime] = None
         self._current_command: Optional[DifferentialDriveCommand] = None
         
-        # Motor ramping for smooth acceleration/deceleration
-        # NOTE: Set to 1.0 to disable ramping (full speed immediately)
-        # Lower values = smoother but slower acceleration (0.05 = 20 cycles to full speed at 0.5s cycle)
-        self._ramp_rate = 0.5  # 25% per cycle = ~2 seconds to full speed (was 0.05)
+        # Motor ramping state for smooth acceleration/deceleration
         self._current_left_speed = 0.0
         self._current_right_speed = 0.0
         
         # Thread safety
         self._lock = threading.Lock()
         
+        # Emergency stop event for immediate response
+        self._emergency_stop_event = threading.Event()
+        
         # Safety monitoring thread
         self._safety_thread: Optional[threading.Thread] = None
         self._stop_safety_thread = threading.Event()
         
-        logger.info("Motor controller initialized")
+        logger.info(f"Motor controller initialized (ramp_rate={self._ramp_rate:.2f}, safety_timeout={safety_timeout:.1f}s)")
     
     def start(self) -> bool:
         """Start motor controller"""
@@ -193,10 +196,11 @@ class MotorController:
         """
         Convert navigation command (speed, turn_rate) to differential drive (left, right)
         
-        Differential drive equation:
+        Improved differential drive equation with better normalization:
         - For forward movement with turn:
           left_speed = speed - turn_rate
           right_speed = speed + turn_rate
+        - Preserves turn ratio when normalizing
         
         Args:
             nav_command: Navigation command
@@ -207,15 +211,21 @@ class MotorController:
         speed = nav_command.speed
         turn = nav_command.turn_rate * self.turn_sensitivity
         
-        # Calculate differential speeds
+        # Calculate raw differential speeds
         left_speed = speed - turn
         right_speed = speed + turn
         
-        # Normalize if speeds exceed limits
+        # Improved normalization that preserves turn characteristics
+        # Find the maximum absolute value
         max_abs = max(abs(left_speed), abs(right_speed))
+        
         if max_abs > 1.0:
-            left_speed /= max_abs
-            right_speed /= max_abs
+            # Scale both speeds proportionally to maintain turn ratio
+            scale_factor = 1.0 / max_abs
+            left_speed *= scale_factor
+            right_speed *= scale_factor
+            
+            logger.debug(f"Normalized speeds by {scale_factor:.2f} to maintain turn ratio")
         
         return DifferentialDriveCommand(
             left_speed=left_speed,
@@ -223,8 +233,13 @@ class MotorController:
         )
     
     def emergency_stop(self):
-        """Emergency stop - immediately stop all motors"""
+        """Emergency stop - immediately stop all motors using event-driven mechanism"""
         logger.warning("EMERGENCY STOP")
+        
+        # Set emergency stop event for immediate response
+        self._emergency_stop_event.set()
+        
+        # Stop motors immediately
         self.motor_driver.stop_all()
         
         with self._lock:
@@ -233,15 +248,29 @@ class MotorController:
             # Reset ramping state
             self._current_left_speed = 0.0
             self._current_right_speed = 0.0
+        
+        # Clear event after handling
+        self._emergency_stop_event.clear()
     
     def _safety_monitor(self):
         """
-        Safety monitoring thread
-        Stops motors if no command received within timeout period
+        Event-driven safety monitoring thread
+        Checks for timeout and responds immediately to emergency stop events
+        More responsive than pure polling
         """
-        logger.info("Safety monitor started")
+        logger.info("Safety monitor started (event-driven)")
         
-        while not self._stop_safety_thread.wait(timeout=0.5):
+        # Use shorter wait intervals for better responsiveness
+        check_interval = 0.1  # 100ms checks instead of 500ms
+        
+        while not self._stop_safety_thread.is_set():
+            # Check for emergency stop event with timeout
+            if self._emergency_stop_event.wait(timeout=check_interval):
+                logger.info("Emergency stop event detected by safety monitor")
+                # Event is already handled in emergency_stop(), just continue monitoring
+                continue
+            
+            # Check safety timeout
             with self._lock:
                 if self._last_command_time is not None:
                     time_since_last = (datetime.now() - self._last_command_time).total_seconds()
@@ -250,6 +279,9 @@ class MotorController:
                         logger.warning(f"Safety timeout: no command for {time_since_last:.1f}s - stopping motors")
                         self.motor_driver.stop_all()
                         self._current_command = None
+                        # Reset ramping state on timeout
+                        self._current_left_speed = 0.0
+                        self._current_right_speed = 0.0
         
         logger.info("Safety monitor stopped")
     
