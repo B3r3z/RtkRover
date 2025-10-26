@@ -218,6 +218,9 @@ class RoverManager(PositionObserver):
         consecutive_errors = 0
         max_consecutive_errors = 3
         
+        # 🔧 NEW: Flag to force heading calibration on first navigation start
+        first_navigation_start = True
+        
         while not self._stop_control.wait(timeout=self._update_rate):
             try:
                 # Process all pending position updates
@@ -252,6 +255,15 @@ class RoverManager(PositionObserver):
                     continue
                 else:
                     consecutive_errors = 0
+                
+                # 🔧 NEW: Force heading calibration on first navigation start
+                from navigation.core.data_types import NavigationStatus
+                nav_status = self.navigator.get_state().status
+                if first_navigation_start and nav_status == NavigationStatus.NAVIGATING:
+                    logger.info("🧭 First navigation start - forcing heading calibration")
+                    self.navigator._current_heading = None  # Force calibration by clearing heading
+                    self.navigator._calibration_mode = False  # Reset calibration flag
+                    first_navigation_start = False
                 
                 # 2. Get navigation command
                 nav_command = self.navigator.get_navigation_command()

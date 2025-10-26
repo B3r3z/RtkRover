@@ -42,7 +42,12 @@ class Navigator(NavigationInterface):
         
         # PID controller for smooth heading control
         # Tune these values based on your robot's response
-        self.heading_pid = PIDController(kp=0.02, ki=0.001, kd=0.01, output_limits=(-1.0, 1.0))
+        # 🔧 OPTIMIZED: Reduced PID parameters to prevent motor asymmetry (one motor too weak)
+        # kp reduced from 0.02 to 0.012 (60%) - gentler proportional response
+        # ki reduced from 0.001 to 0.0005 (50%) - slower integral buildup
+        # kd reduced from 0.01 to 0.008 (80%) - smoother derivative action
+        # output_limits reduced from ±1.0 to ±0.6 - prevents extreme turn rates
+        self.heading_pid = PIDController(kp=0.012, ki=0.0005, kd=0.008, output_limits=(-0.6, 0.6))
         
         # Configuration
         self.max_speed = max_speed
@@ -65,8 +70,10 @@ class Navigator(NavigationInterface):
         # Heading calibration phase
         self._calibration_mode = False
         self._calibration_start_time: Optional[datetime] = None
-        self._calibration_duration = 3.0  # seconds to drive straight for heading calibration
-        self._calibration_speed = 0.3  # Low speed during calibration (30%)
+        self._calibration_duration = 5.0  # 🔧 INCREASED: Extended from 3.0s to 5.0s for better heading acquisition
+        self._calibration_speed = 0.5  # 🔧 INCREASED: From 0.3 (30%) to 0.5 (50%) - GPS needs movement >0.5 m/s
+        self._calibration_samples = []  # 🔧 NEW: Collect heading samples for consistency check
+        self._calibration_required_samples = 3  # 🔧 NEW: Need 3 consistent samples to complete calibration
         
         # Command smoothing
         self._last_command: Optional[NavigationCommand] = None
@@ -197,27 +204,46 @@ class Navigator(NavigationInterface):
             if self._current_heading is None and not self._calibration_mode:
                 self._calibration_mode = True
                 self._calibration_start_time = datetime.now()
+                self._calibration_samples = []  # 🔧 Reset samples
                 logger.warning(f"🧭 HEADING CALIBRATION STARTED - no GPS heading available")
-                logger.warning(f"   Robot will drive straight for {self._calibration_duration}s at {self._calibration_speed*100:.0f}% speed")
-                logger.warning(f"   GPS VTG will update heading once robot moves")
+                logger.warning(f"   Robot will drive straight for up to {self._calibration_duration}s at {self._calibration_speed*100:.0f}% speed")
+                logger.warning(f"   Waiting for {self._calibration_required_samples} consistent VTG heading samples")
+                logger.warning(f"   GPS must detect movement (speed > 0.5 m/s)")
             
-            # During calibration: drive straight at low speed
+            # During calibration: drive straight at low speed and collect heading samples
             if self._calibration_mode:
                 elapsed = (datetime.now() - self._calibration_start_time).total_seconds()
                 
+                # Collect heading samples
                 if self._current_heading is not None:
-                    # Heading acquired! Exit calibration
-                    self._calibration_mode = False
-                    logger.info(f"✅ Heading calibration complete! Heading: {self._current_heading:.1f}° (took {elapsed:.1f}s)")
+                    self._calibration_samples.append(self._current_heading)
+                    logger.info(f"🧭 Heading sample #{len(self._calibration_samples)}: {self._current_heading:.1f}° (speed={self._current_speed:.2f} m/s)")
+                
+                # Check if we have enough consistent samples
+                if len(self._calibration_samples) >= self._calibration_required_samples:
+                    # Check consistency (variance < 15°)
+                    heading_variance = max(self._calibration_samples) - min(self._calibration_samples)
+                    if heading_variance < 15.0:
+                        avg_heading = sum(self._calibration_samples) / len(self._calibration_samples)
+                        self._calibration_mode = False
+                        logger.info(f"✅ Heading calibration complete! Heading: {avg_heading:.1f}° (variance: {heading_variance:.1f}°, took {elapsed:.1f}s)")
+                    else:
+                        logger.warning(f"⚠️ Heading samples inconsistent (variance={heading_variance:.1f}°), continuing calibration...")
+                        self._calibration_samples = self._calibration_samples[-2:]  # Keep last 2 samples
+                
                 elif elapsed >= self._calibration_duration:
-                    # Timeout - continue without heading (not ideal but safer than spinning)
+                    # Timeout
                     self._calibration_mode = False
-                    logger.error(f"❌ Heading calibration TIMEOUT after {elapsed:.1f}s")
-                    logger.error(f"   Continuing without heading - navigation may be inaccurate")
-                    logger.error(f"   Check GPS VTG messages are enabled")
+                    if len(self._calibration_samples) > 0:
+                        avg_heading = sum(self._calibration_samples) / len(self._calibration_samples)
+                        logger.warning(f"⚠️ Heading calibration TIMEOUT after {elapsed:.1f}s")
+                        logger.warning(f"   Using partial data: {len(self._calibration_samples)} samples, avg heading: {avg_heading:.1f}°")
+                    else:
+                        logger.error(f"❌ Heading calibration FAILED after {elapsed:.1f}s - no samples collected")
+                        logger.error(f"   GPS speed may be too low or VTG messages not working")
                 else:
-                    # Still calibrating - drive straight
-                    logger.info(f"🧭 Calibrating heading... {elapsed:.1f}s / {self._calibration_duration}s")
+                    # Continue driving straight
+                    logger.info(f"🧭 Calibrating heading... {elapsed:.1f}s / {self._calibration_duration}s (samples: {len(self._calibration_samples)}/{self._calibration_required_samples})")
                     return NavigationCommand(
                         speed=self._calibration_speed,
                         turn_rate=0.0,  # Drive perfectly straight

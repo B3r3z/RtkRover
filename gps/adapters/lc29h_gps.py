@@ -267,8 +267,20 @@ class LC29HGPS(GPS):
                 logger.warning(f"📡 GGA: Fix claimed with insufficient satellites ({satellites})")
 
             vtg_age = current_time - self._last_vtg_time if self._last_vtg_time > 0 else float('inf')
-            heading = self.last_heading if vtg_age < 5.0 else None
+            
+            # 🔧 NEW: Validate heading based on speed - VTG heading is unreliable when stationary
+            MIN_SPEED_FOR_HEADING = 0.5  # m/s - minimum speed for reliable heading (1.8 km/h)
             speed = self.last_speed if vtg_age < 5.0 else None
+            heading = None
+            
+            if vtg_age < 5.0 and self.last_heading is not None:
+                if speed is not None and speed >= MIN_SPEED_FOR_HEADING:
+                    heading = self.last_heading  # ✅ Heading reliable - robot is moving
+                    logger.debug(f"📡 Using VTG heading {heading:.1f}° (speed={speed:.2f} m/s)")
+                else:
+                    heading = None  # ❌ Heading unreliable - robot stationary or moving too slow
+                    if speed is not None:
+                        logger.debug(f"📡 VTG heading ignored - speed too low ({speed:.2f} m/s < {MIN_SPEED_FOR_HEADING})")
             
             return Position(
                 lat=lat,
