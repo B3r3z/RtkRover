@@ -31,7 +31,8 @@ class Navigator(NavigationInterface):
                  realign_threshold: float = 30.0,
                  align_speed: float = 0.4,
                  align_timeout: float = 10.0,
-                 drive_correction_gain: float = 0.02):
+                 drive_correction_gain: float = 0.02,
+                 loop_mode: bool = False):
         """
         Initialize navigator
         
@@ -44,11 +45,12 @@ class Navigator(NavigationInterface):
             align_speed: Speed multiplier during rotation in place (0.0 to 1.0)
             align_timeout: Maximum time to spend in ALIGN phase (seconds)
             drive_correction_gain: Proportional gain for minor course corrections during DRIVE
+            loop_mode: If True, cycles through waypoints continuously (default: False)
         """
         # Components
         self.geo_utils = GeoUtils()
         self.path_planner = SimplePathPlanner()
-        self.waypoint_manager = SimpleWaypointManager()
+        self.waypoint_manager = SimpleWaypointManager(loop_mode=loop_mode)
         
         # PID controller for smooth heading control
         # Tune these values based on your robot's response
@@ -99,6 +101,7 @@ class Navigator(NavigationInterface):
         self._lock = threading.Lock()
         
         logger.info("Navigator initialized with state machine navigation")
+        logger.info(f"  Loop mode: {'enabled' if loop_mode else 'disabled'}")
         logger.info(f"  Align: tolerance={align_tolerance}°, threshold={realign_threshold}°, "
                    f"speed={align_speed:.2f}, timeout={align_timeout}s")
         logger.info(f"  Drive: correction_gain={drive_correction_gain:.3f}")
@@ -176,9 +179,19 @@ class Navigator(NavigationInterface):
             logger.info(f"🎯 Target set: {waypoint.name or 'Unnamed'} at ({waypoint.lat:.6f}, {waypoint.lon:.6f})")
             logger.info(f"📍 Starting navigation to waypoint '{waypoint.name or 'Unnamed'}' (tolerance: {waypoint.tolerance}m)")
     
-    def set_waypoint_path(self, waypoints: list):
-        """Set multiple waypoints for path following"""
+    def set_waypoint_path(self, waypoints: list, loop_mode: Optional[bool] = None):
+        """
+        Set multiple waypoints for path following
+        
+        Args:
+            waypoints: List of Waypoint objects
+            loop_mode: Optional override for loop mode. If None, uses navigator's default
+        """
         with self._lock:
+            # Update loop mode if specified
+            if loop_mode is not None:
+                self.waypoint_manager.set_loop_mode(loop_mode)
+            
             self.waypoint_manager.clear_waypoints()
             for wp in waypoints:
                 self.waypoint_manager.add_waypoint(wp)
@@ -195,7 +208,8 @@ class Navigator(NavigationInterface):
                 self._navigation_phase = NavigationPhase.IDLE
                 self._phase_start_time = None
                 
-                logger.info(f"🗺️  Path set with {len(waypoints)} waypoints")
+                loop_status = "loop mode" if self.waypoint_manager.is_loop_mode() else "one-time path"
+                logger.info(f"🗺️  Path set with {len(waypoints)} waypoints ({loop_status})")
                 logger.info(f"📍 Starting path navigation - First waypoint: '{self._target_waypoint.name or 'Unnamed'}'")
     
     def get_navigation_command(self) -> Optional[NavigationCommand]:
@@ -506,11 +520,20 @@ class Navigator(NavigationInterface):
         """Handle when waypoint is reached"""
         waypoint_name = self._target_waypoint.name or 'Unnamed'
         waypoint_coords = f"({self._target_waypoint.lat:.6f}, {self._target_waypoint.lon:.6f})"
-        logger.info(f"✅ Waypoint reached: '{waypoint_name}' at {waypoint_coords} (tolerance: {self._target_waypoint.tolerance}m)")
+        
+        # Log loop progress if in loop mode
+        if self.waypoint_manager.is_loop_mode():
+            current_idx = self.waypoint_manager._current_index
+            total_wps = len(self.waypoint_manager._waypoints)
+            loop_num = self.waypoint_manager.get_loop_count() + 1
+            logger.info(f"✅ Waypoint {current_idx + 1}/{total_wps} reached: '{waypoint_name}' (Loop #{loop_num})")
+        else:
+            logger.info(f"✅ Waypoint reached: '{waypoint_name}' at {waypoint_coords} (tolerance: {self._target_waypoint.tolerance}m)")
+        
         self._status = NavigationStatus.REACHED_WAYPOINT
         
         if self._mode == NavigationMode.PATH_FOLLOWING:
-            # Move to next waypoint
+            # Move to next waypoint (or cycle in loop mode)
             if self.waypoint_manager.advance_to_next():
                 self._target_waypoint = self.waypoint_manager.get_next_waypoint()
                 self._status = NavigationStatus.NAVIGATING
@@ -525,9 +548,13 @@ class Navigator(NavigationInterface):
                 
                 remaining = self.waypoint_manager.get_remaining_count()
                 next_waypoint_name = self._target_waypoint.name or 'Unnamed'
-                logger.info(f"📍 Moving to next waypoint: '{next_waypoint_name}' ({remaining} waypoints remaining)")
+                
+                if self.waypoint_manager.is_loop_mode():
+                    logger.info(f"📍 Moving to next waypoint: '{next_waypoint_name}' (Loop continues)")
+                else:
+                    logger.info(f"📍 Moving to next waypoint: '{next_waypoint_name}' ({remaining} waypoints remaining)")
             else:
-                # Path complete
+                # Path complete (only happens in non-loop mode)
                 self._status = NavigationStatus.PATH_COMPLETE
                 self._target_waypoint = None
                 logger.info("🏁 Path complete! All waypoints reached.")
@@ -712,3 +739,23 @@ class Navigator(NavigationInterface):
     def get_waypoints(self) -> list:
         """Get all waypoints"""
         return self.waypoint_manager.get_all_waypoints()
+    
+    def set_loop_mode(self, enabled: bool):
+        """
+        Enable or disable loop mode for path following
+        
+        Args:
+            enabled: True to enable continuous loop, False for one-time path
+        """
+        with self._lock:
+            self.waypoint_manager.set_loop_mode(enabled)
+            mode_str = "enabled" if enabled else "disabled"
+            logger.info(f"🔄 Navigator loop mode {mode_str}")
+    
+    def is_loop_mode(self) -> bool:
+        """Check if loop mode is currently enabled"""
+        return self.waypoint_manager.is_loop_mode()
+    
+    def get_loop_count(self) -> int:
+        """Get number of complete loops (only relevant in loop mode)"""
+        return self.waypoint_manager.get_loop_count()
