@@ -71,6 +71,7 @@ RtkRover/
 
 ## 📖 Dokumentacja
 
+- **[NAVIGATION_WAYPOINT_ALGORITHM.md](NAVIGATION_WAYPOINT_ALGORITHM.md)** - Algorytm nawigacji way-point (pseudokod, diagramy, przypadki użycia)
 - **[INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)** - Plan integracji RoverManager z RTKManager
 - **[NAVIGATION_ARCHITECTURE.md](NAVIGATION_ARCHITECTURE.md)** - Architektura nawigacji i silników
 - **[QUICK_START_INTEGRATION.py](QUICK_START_INTEGRATION.py)** - Szybki start integracji
@@ -142,6 +143,7 @@ Przejdź przez **[INTEGRATION_CHECKLIST.md](INTEGRATION_CHECKLIST.md)** - komple
 
 | Dokument | Opis |
 |----------|------|
+| **[NAVIGATION_WAYPOINT_ALGORITHM.md](NAVIGATION_WAYPOINT_ALGORITHM.md)** | 🗺️ Algorytm nawigacji way-point - pseudokod, diagramy przepływu, przypadki użycia |
 | **[INTEGRATION_CHECKLIST.md](INTEGRATION_CHECKLIST.md)** | ✅ Lista kontrolna - krok po kroku integracja |
 | **[INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)** | 📋 Szczegółowy plan integracji z RTK |
 | **[NAVIGATION_ARCHITECTURE.md](NAVIGATION_ARCHITECTURE.md)** | 🧭 Architektura nawigacji i silników |
