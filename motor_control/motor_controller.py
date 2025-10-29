@@ -196,10 +196,17 @@ class MotorController:
         """
         Convert navigation command (speed, turn_rate) to differential drive (left, right)
         
+        Supports two modes:
+        1. Forward motion with turn: speed > 0, turn_rate adjusts L/R differential
+        2. Rotation in place: speed = 0, turn_rate causes rotation (for ALIGN phase)
+        
         Improved differential drive equation with better normalization:
         - For forward movement with turn:
           left_speed = speed - turn_rate
           right_speed = speed + turn_rate
+        - For rotation in place (speed = 0):
+          left_speed = -turn_rate
+          right_speed = turn_rate
         - Preserves turn ratio when normalizing
         
         Args:
@@ -211,21 +218,39 @@ class MotorController:
         speed = nav_command.speed
         turn = nav_command.turn_rate * self.turn_sensitivity
         
-        # Calculate raw differential speeds
-        left_speed = speed - turn
-        right_speed = speed + turn
-        
-        # Improved normalization that preserves turn characteristics
-        # Find the maximum absolute value
-        max_abs = max(abs(left_speed), abs(right_speed))
-        
-        if max_abs > 1.0:
-            # Scale both speeds proportionally to maintain turn ratio
-            scale_factor = 1.0 / max_abs
-            left_speed *= scale_factor
-            right_speed *= scale_factor
+        # Check for rotation in place (ALIGN phase)
+        if speed == 0.0 and turn != 0.0:
+            # Rotate in place: motors in opposite directions
+            left_speed = -turn
+            right_speed = turn
+            # 🔧 IMPROVED: Log first few turn-in-place commands at INFO level for visibility
+            if not hasattr(self, '_turn_in_place_count'):
+                self._turn_in_place_count = 0
+            if self._turn_in_place_count < 3:
+                logger.info(f"🔄 Turn-in-place mode: L={left_speed:.2f}, R={right_speed:.2f} (turn={turn:.2f})")
+                self._turn_in_place_count += 1
+            else:
+                logger.debug(f"Turn-in-place: L={left_speed:.2f}, R={right_speed:.2f} (turn={turn:.2f})")
+        else:
+            # Standard differential drive for forward/backward motion
+            # Reset turn-in-place counter when not turning
+            if hasattr(self, '_turn_in_place_count'):
+                self._turn_in_place_count = 0
             
-            logger.debug(f"Normalized speeds by {scale_factor:.2f} to maintain turn ratio")
+            left_speed = speed - turn
+            right_speed = speed + turn
+            
+            # Improved normalization that preserves turn characteristics
+            # Find the maximum absolute value
+            max_abs = max(abs(left_speed), abs(right_speed))
+            
+            if max_abs > 1.0:
+                # Scale both speeds proportionally to maintain turn ratio
+                scale_factor = 1.0 / max_abs
+                left_speed *= scale_factor
+                right_speed *= scale_factor
+                
+                logger.debug(f"Normalized speeds by {scale_factor:.2f} to maintain turn ratio")
         
         return DifferentialDriveCommand(
             left_speed=left_speed,

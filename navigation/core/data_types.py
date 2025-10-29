@@ -25,6 +25,22 @@ class NavigationStatus(Enum):
     PAUSED = "paused"
 
 
+class NavigationPhase(Enum):
+    """Navigation phase for state machine control
+    
+    State machine flow:
+    IDLE → CALIBRATING → ALIGNING → DRIVING → REACHED
+                           ↑           ↓
+                           └───────────┘
+                        (re-align if error > threshold)
+    """
+    IDLE = "idle"
+    CALIBRATING = "calibrating"  # Initial heading acquisition
+    ALIGNING = "aligning"        # Rotating in place to face target
+    DRIVING = "driving"          # Moving forward toward target
+    REACHED = "reached"          # Waypoint reached
+
+
 @dataclass
 class Waypoint:
     """Represents a GPS waypoint"""

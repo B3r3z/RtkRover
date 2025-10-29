@@ -43,7 +43,12 @@ class RoverManager(PositionObserver):
         self.navigator = Navigator(
             max_speed=navigation_config['max_speed'],
             turn_aggressiveness=navigation_config['turn_aggressiveness'],
-            waypoint_tolerance=navigation_config['waypoint_tolerance']
+            waypoint_tolerance=navigation_config['waypoint_tolerance'],
+            align_tolerance=navigation_config.get('align_tolerance', 15.0),
+            realign_threshold=navigation_config.get('realign_threshold', 30.0),
+            align_speed=navigation_config.get('align_speed', 0.4),
+            align_timeout=navigation_config.get('align_timeout', 10.0),
+            drive_correction_gain=navigation_config.get('drive_correction_gain', 0.02)
         )
         
         # Initialize motor driver
