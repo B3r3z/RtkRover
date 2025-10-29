@@ -84,6 +84,10 @@ def example_with_gps_simulation():
     logger.info("Example 3: Loop Navigation with GPS Simulation")
     logger.info("=" * 60)
     
+    # Simulation constants
+    LAT_INCREMENT = 0.0001  # Simulated latitude change per step
+    HEADING_INCREMENT = 5.0  # Simulated heading change per step (degrees)
+    
     navigator = Navigator(
         loop_mode=True,
         waypoint_tolerance=0.5,
@@ -101,12 +105,16 @@ def example_with_gps_simulation():
     navigator.set_waypoint_path(patrol_route)
     navigator.start()
     
+    # Start from first waypoint position
+    start_lat = patrol_route[0].lat
+    start_lon = patrol_route[0].lon
+    
     logger.info("Simulating GPS-RTK updates for patrol route")
-    logger.info(f"Starting position: {patrol_route[0].lat}, {patrol_route[0].lon}")
+    logger.info(f"Starting position: {start_lat}, {start_lon}")
     
     # Simulate GPS updates
-    current_lat = 52.000
-    current_lon = 21.000
+    current_lat = start_lat
+    current_lon = start_lon
     current_heading = 0.0
     current_speed = 1.0  # m/s
     
@@ -126,8 +134,8 @@ def example_with_gps_simulation():
             logger.info(f"Step {i+1}: Speed={command.speed:.2f}, Turn={command.turn_rate:.2f}")
             
             # Simulate movement (very simplified)
-            current_lat += 0.0001
-            current_heading += 5.0
+            current_lat += LAT_INCREMENT
+            current_heading += HEADING_INCREMENT
             
             # Check status
             state = navigator.get_state()
@@ -154,6 +162,10 @@ def example_error_handling():
     logger.info("\n" + "=" * 60)
     logger.info("Example 4: GPS Error Handling")
     logger.info("=" * 60)
+    
+    # GPS staleness threshold from Navigator (default is 2.0 seconds)
+    GPS_STALENESS_THRESHOLD = 2.0
+    WAIT_FOR_STALE_GPS = GPS_STALENESS_THRESHOLD + 0.5  # Wait slightly longer
     
     navigator = Navigator(loop_mode=True)
     
@@ -184,7 +196,8 @@ def example_error_handling():
     
     # Scenario 3: GPS dropout simulation
     logger.info("\nScenario 3: GPS dropout (simulated by not updating position)")
-    time.sleep(2.5)  # Wait for position to become stale (>2 seconds)
+    logger.info(f"Waiting {WAIT_FOR_STALE_GPS}s for GPS data to become stale...")
+    time.sleep(WAIT_FOR_STALE_GPS)
     command = navigator.get_navigation_command()
     if command is None:
         state = navigator.get_state()
