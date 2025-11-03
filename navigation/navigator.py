@@ -29,9 +29,10 @@ class Navigator(NavigationInterface):
                  waypoint_tolerance: float = 0.5,
                  align_tolerance: float = 15.0,
                  realign_threshold: float = 30.0,
-                 align_speed: float = 0.4,
+                 align_speed: float = 0.6,
                  align_timeout: float = 10.0,
-                 drive_correction_gain: float = 0.02):
+                 drive_correction_gain: float = 0.02,
+                 calibration_speed: float = 0.7):
         """
         Initialize navigator
         
@@ -44,6 +45,7 @@ class Navigator(NavigationInterface):
             align_speed: Speed multiplier during rotation in place (0.0 to 1.0)
             align_timeout: Maximum time to spend in ALIGN phase (seconds)
             drive_correction_gain: Proportional gain for minor course corrections during DRIVE
+            calibration_speed: Speed multiplier during heading calibration phase (0.0 to 1.0)
         """
         # Components
         self.geo_utils = GeoUtils()
@@ -91,7 +93,7 @@ class Navigator(NavigationInterface):
         self._calibration_mode = False
         self._calibration_start_time: Optional[datetime] = None
         self._calibration_duration = 5.0  # 🔧 INCREASED: Extended from 3.0s to 5.0s for better heading acquisition
-        self._calibration_speed = 0.5  # 🔧 INCREASED: From 0.3 (30%) to 0.5 (50%) - GPS needs movement >0.5 m/s
+        self._calibration_speed = calibration_speed  # 🔧 NOW CONFIGURABLE: Uses parameter from config instead of hardcoded value
         self._calibration_samples = []  # 🔧 NEW: Collect heading samples for consistency check
         self._calibration_required_samples = 3  # 🔧 NEW: Need 3 consistent samples to complete calibration
         

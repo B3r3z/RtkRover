@@ -18,7 +18,7 @@ motor_gpio_pins = {
 
 # Motor control parameters
 motor_config = {
-    'max_speed': float(os.getenv('MOTOR_MAX_SPEED', '0.8')),  # 0.0 to 1.0
+    'max_speed': float(os.getenv('MOTOR_MAX_SPEED', '1.0')),  # 0.0 to 1.0
     'turn_sensitivity': float(os.getenv('MOTOR_TURN_SENSITIVITY', '1.0')),
     'safety_timeout': float(os.getenv('MOTOR_SAFETY_TIMEOUT', '10.5')),  
     'ramp_rate': float(os.getenv('MOTOR_RAMP_RATE', '0.5')),  # Acceleration rate (0.0 to 1.0 per cycle)
@@ -29,16 +29,16 @@ motor_config = {
 navigation_config = {
     'max_speed': float(os.getenv('NAV_MAX_SPEED', '1.0')),  # 0.0 to 1.0
     'turn_aggressiveness': float(os.getenv('NAV_TURN_AGGR', '0.4')),  # 0.0 to 1.0
-    'waypoint_tolerance': float(os.getenv('NAV_WP_TOLERANCE', '2.0')),  # meters
+    'waypoint_tolerance': float(os.getenv('NAV_WP_TOLERANCE', '0.01')),  
     'update_rate': float(os.getenv('NAV_UPDATE_RATE', '1.0')),  # seconds
-    'calibration_speed': float(os.getenv('NAV_CALIB_SPEED', '0.5')),  # 🔧 NEW: Calibration speed (50% to ensure GPS detects movement)
+    'calibration_speed': float(os.getenv('NAV_CALIB_SPEED', '0.8')),  # 🔧 INCREASED: Calibration speed (80% to ensure GPS detects movement >0.5 m/s after motor scaling)
     'calibration_duration': float(os.getenv('NAV_CALIB_DURATION', '5.0')),  # 🔧 NEW: Max calibration time in seconds
     'min_speed_for_heading': float(os.getenv('GPS_MIN_SPEED_HEADING', '0.5')),  # 🔧 NEW: Min speed (m/s) for reliable VTG heading
     
     
     'align_tolerance': float(os.getenv('NAV_ALIGN_TOLERANCE', '15.0')),  # degrees - how aligned to be before driving
     'realign_threshold': float(os.getenv('NAV_REALIGN_THRESHOLD', '30.0')),  # degrees - when to re-align during driving
-    'align_speed': float(os.getenv('NAV_ALIGN_SPEED', '0.4')),  # 0.0-1.0 - rotation speed during alignment
+    'align_speed': float(os.getenv('NAV_ALIGN_SPEED', '0.6')),  # 0.0-1.0 - rotation speed during alignment
     'align_timeout': float(os.getenv('NAV_ALIGN_TIMEOUT', '10.0')),  # seconds - max time to spend aligning
     'drive_correction_gain': float(os.getenv('NAV_DRIVE_CORRECTION', '0.02')),  # proportional correction during straight driving
 }
