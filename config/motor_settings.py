@@ -18,38 +18,26 @@ motor_gpio_pins = {
 
 # Motor control parameters
 motor_config = {
-    'max_speed': float(os.getenv('MOTOR_MAX_SPEED', '1.0')),  # 0.0 to 1.0
-    'turn_sensitivity': float(os.getenv('MOTOR_TURN_SENSITIVITY', '1.0')),
-    'safety_timeout': float(os.getenv('MOTOR_SAFETY_TIMEOUT', '10.5')),  
-    'ramp_rate': float(os.getenv('MOTOR_RAMP_RATE', '0.5')),  # Acceleration rate (0.0 to 1.0 per cycle)
-    'use_gpio': os.getenv('MOTOR_USE_GPIO', 'True').lower() == 'true'  # Set to False for simulation
+    'frequency': 1000,  # Hz
+    'min_duty_cycle': 20,  # Minimum duty cycle to move motors (%)
+    'max_duty_cycle': 100,
+    'ramp_step': 5,  # Percentage change per step for ramping
+    'ramp_delay': 0.05,  # Seconds between ramp steps
+    'wheel_base': 0.5,  # Distance between wheels in meters
+    'max_speed': 1.0,   # Maximum motor speed multiplier
+    'turn_sensitivity': 1.0, # Kept for backward compatibility if needed
+    'safety_timeout': 2.0 # Kept for backward compatibility if needed
 }
 
 # Navigation parameters
 navigation_config = {
-    'max_speed': float(os.getenv('NAV_MAX_SPEED', '1.0')),  # 0.0 to 1.0
-    'turn_aggressiveness': float(os.getenv('NAV_TURN_AGGR', '0.4')),  # 0.0 to 1.0
-    'waypoint_tolerance': float(os.getenv('NAV_WP_TOLERANCE', '0.01')),  
-    'update_rate': float(os.getenv('NAV_UPDATE_RATE', '1.0')),  # seconds
-    'calibration_speed': float(os.getenv('NAV_CALIB_SPEED', '0.8')),  # 🔧 INCREASED: Calibration speed (80% to ensure GPS detects movement >0.5 m/s after motor scaling)
-    'calibration_duration': float(os.getenv('NAV_CALIB_DURATION', '5.0')),  # 🔧 NEW: Max calibration time in seconds
-    'min_speed_for_heading': float(os.getenv('GPS_MIN_SPEED_HEADING', '0.5')),  # 🔧 NEW: Min speed (m/s) for reliable VTG heading
-    
-    
-    'align_tolerance': float(os.getenv('NAV_ALIGN_TOLERANCE', '15.0')),  # degrees - how aligned to be before driving
-    'realign_threshold': float(os.getenv('NAV_REALIGN_THRESHOLD', '30.0')),  # degrees - when to re-align during driving
-    'align_speed': float(os.getenv('NAV_ALIGN_SPEED', '0.6')),  # 0.0-1.0 - rotation speed during alignment
-    'align_timeout': float(os.getenv('NAV_ALIGN_TIMEOUT', '10.0')),  # seconds - max time to spend aligning
-    'drive_correction_gain': float(os.getenv('NAV_DRIVE_CORRECTION', '0.02')),  # proportional correction during straight driving
-}
-
-# PID tuning for heading control
-# Tune these values based on your robot's characteristics
-# 🔧 OPTIMIZED: Reduced values to prevent one motor getting too weak during turns
-pid_config = {
-    'heading': {
-        'kp': float(os.getenv('PID_HEADING_KP', '0.012')),  # 🔧 REDUCED: from 0.02 to 0.012 (60%)
-        'ki': float(os.getenv('PID_HEADING_KI', '0.0005')),  # 🔧 REDUCED: from 0.001 to 0.0005 (50%)
-        'kd': float(os.getenv('PID_HEADING_KD', '0.008'))  # 🔧 REDUCED: from 0.01 to 0.008 (80%)
-    }
+    'max_speed': 0.8,  # 0.0 to 1.0
+    'turn_aggressiveness': 0.6,
+    'waypoint_tolerance': 1.0,  # meters
+    'align_tolerance': 10.0,  # degrees
+    'realign_threshold': 20.0,  # degrees
+    'align_speed': 0.5,
+    'align_timeout': 15.0,  # seconds
+    'drive_correction_gain': 0.05,
+    'calibration_speed': 0.6
 }

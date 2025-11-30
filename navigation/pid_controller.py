@@ -50,11 +50,13 @@ class PIDController:
         
         self._last_time = current_time
         
-        if dt <= 0:
-            return 0.0
-        
         # Proportional term
         p_term = self.kp * error
+        
+        if dt <= 0:
+            # Only return P term if no time elapsed (e.g. first call)
+            output = p_term
+            return max(self.output_limits[0], min(self.output_limits[1], output))
         
         # Integral term
         self._integral += error * dt

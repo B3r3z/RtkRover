@@ -5,8 +5,8 @@ import threading
 import logging
 import ssl
 from typing import Optional, Callable, Dict, Any
-from config.nmea_utils import build_dummy_gga
-from .rtcm_parser import RTCMParser, RTCMValidator, RTCMMessage
+from gps.nmea_parser import build_dummy_gga
+from .rtcm_parser import RTCMParser, RTCMValidator
 
 logger = logging.getLogger(__name__)
 

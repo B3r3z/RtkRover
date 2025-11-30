@@ -1,7 +1,7 @@
 from gps.adapters.lc29h_gps import LC29HGPS
 from gps.services.ntrip_service import NTRIPServiceAdapter
-from gps.rtk_system import RTKSystem
-from gps.core.interfaces import RTKSystemInterface
+from typing import Dict, Any
+from .interfaces import RTKSystemInterface
 
 def create_rtk_system(uart_config: dict, ntrip_config: dict) -> RTKSystemInterface:
     gps = LC29HGPS(port=uart_config['port'])

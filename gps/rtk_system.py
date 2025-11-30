@@ -3,10 +3,8 @@ import time
 import logging
 import queue
 from typing import Optional, List
-from .core.interfaces import (
-    RTKSystemInterface, GPS, NTRIPService, PositionObserver,
-    Position, RTKStats, RTKStatus
-)
+from .interfaces import RTKSystemInterface, PositionObserver, Position, RTKStats, RTKStatus, GPS, NTRIPService
+from .rtcm_parser import RTCMParser
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +44,11 @@ class RTKSystem(RTKSystemInterface):
                 self._start_thread(self._gga_upload_loop, "GGAUploader")
                 self._start_thread(self._ntrip_monitor_loop, "NTRIPMonitor")
                 self._start_thread(self._rtcm_reader_loop, "RTCMReader")
-                logger.info("🌐 RTK system started with NTRIP connection")
+                logger.info("RTK system started with NTRIP connection")
             else:
-                logger.warning("⚠️ NTRIP connection failed - running in GPS-only mode")
+                logger.warning("NTRIP connection failed - running in GPS-only mode")
         else:
-            logger.info("📍 RTK system started in GPS-only mode")
+            logger.info("RTK system started in GPS-only mode")
             
         return True
     
@@ -76,7 +74,7 @@ class RTKSystem(RTKSystemInterface):
         # Log position update every 1 second
         current_time = time.time()
         if current_time - self._last_position_log >= 1.0:
-            logger.info(f"🎯 Position: {position.rtk_status.value}, "
+            logger.info(f"Position: {position.rtk_status.value}, "
                        f"Lat: {position.lat:.6f}, Lon: {position.lon:.6f}, "
                        f"Sats: {position.satellites}, HDOP: {position.hdop:.1f}")
             self._last_position_log = current_time
@@ -100,7 +98,7 @@ class RTKSystem(RTKSystemInterface):
                         self.rtcm_queue.put(rtcm_data, block=False)
                         
                     else:
-                        logger.warning(f"⚠️ RTCM queue full, dropping message #{rtcm_received_count}")
+                        logger.warning(f"RTCM queue full, dropping message #{rtcm_received_count}")
                 
                 time.sleep(0.1)  # Check for new RTCM data every 100ms
             except Exception as e:
@@ -117,7 +115,7 @@ class RTKSystem(RTKSystemInterface):
                 if self.gps.write_rtcm(rtcm_data):
                     self._stats.rtcm_messages += 1
                 else:
-                    logger.warning(f"❌ RTCM #{rtcm_count}: Failed to write to GPS")
+                    logger.warning(f"RTCM #{rtcm_count}: Failed to write to GPS")
             except queue.Empty:
                 continue
             except Exception as e:
@@ -150,13 +148,13 @@ class RTKSystem(RTKSystemInterface):
                 
                 # Log status every 60 seconds at debug level
                 if current_time - last_status_log >= 60.0:
-                    status = "🌐 CONNECTED" if is_connected else "❌ DISCONNECTED"
+                    status = "CONNECTED" if is_connected else "DISCONNECTED"
                     logger.debug(f"NTRIP Status: {status}")
                     last_status_log = current_time
                 
                 # If disconnected, log more frequently
                 if not is_connected and current_time - last_status_log >= 10.0:
-                    logger.warning("⚠️ NTRIP connection lost - auto-reconnect will attempt")
+                    logger.warning("NTRIP connection lost - auto-reconnect will attempt")
                     last_status_log = current_time
                 
                 time.sleep(10.0)

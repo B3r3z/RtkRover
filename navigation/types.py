@@ -35,9 +35,7 @@ class NavigationPhase(Enum):
                         (re-align if error > threshold)
     """
     IDLE = "idle"
-    CALIBRATING = "calibrating"  # Initial heading acquisition
-    ALIGNING = "aligning"        # Rotating in place to face target
-    DRIVING = "driving"          # Moving forward toward target
+    NAVIGATING = "navigating"    # Moving toward target (unified drive/steer)
     REACHED = "reached"          # Waypoint reached
 
 
