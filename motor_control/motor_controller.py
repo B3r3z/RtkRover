@@ -120,3 +120,43 @@ class MotorController:
         right_dir = MotorDirection.FORWARD if right_speed >= 0 else MotorDirection.BACKWARD
         self.motor_driver.set_motor('right', right_dir, abs(right_speed))
 
+    def execute_differential_command(self, command: DifferentialDriveCommand):
+        """
+        Execute direct differential drive command
+        
+        Args:
+            command: Differential drive command with left/right speeds
+        """
+        if not self._is_running:
+            return
+            
+        # Apply max speed limit
+        left_speed = command.left_speed * self.max_speed
+        right_speed = command.right_speed * self.max_speed
+        
+        self._set_motors(left_speed, right_speed)
+
+    def emergency_stop(self):
+        """Stop all motors immediately"""
+        with self._lock:
+            self.motor_driver.stop_all()
+            logger.warning("Emergency stop executed")
+
+    def set_max_speed(self, speed: float):
+        """
+        Set maximum speed multiplier
+        
+        Args:
+            speed: Max speed (0.0 to 1.0)
+        """
+        self.max_speed = max(0.0, min(1.0, speed))
+        logger.info(f"Max speed set to {self.max_speed:.2f}")
+
+    def get_status(self) -> dict:
+        """Get controller status"""
+        return {
+            "is_running": self._is_running,
+            "max_speed": self.max_speed,
+            "driver_initialized": self.motor_driver.is_initialized()
+        }
+
