@@ -549,74 +549,75 @@ class RoverManager(PositionObserver):
         logger.info("Motors stopped")
     
     
-    class GlobalRoverManager:
+
+class GlobalRoverManager:
+    """
+    Singleton manager for entire rover system
+    Thread-safe initialization and access
+    """
+    
+    _instance: Optional['GlobalRoverManager'] = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        
+        self.rover_manager = None
+        self._initialization_lock = threading.Lock()
+        self._initialization_attempted = False
+        self._initialized = True
+        logger.info("Global Rover Manager singleton created")
+    
+    def initialize(self, rtk_manager):
         """
-        Singleton manager for entire rover system
-        Thread-safe initialization and access
+        Initialize rover manager with RTK system
         """
-        
-        _instance: Optional['GlobalRoverManager'] = None
-        _lock = threading.Lock()
-        
-        def __new__(cls):
-            if cls._instance is None:
-                with cls._lock:
-                    if cls._instance is None:
-                        cls._instance = super().__new__(cls)
-                        cls._instance._initialized = False
-            return cls._instance
-        
-        def __init__(self):
-            if self._initialized:
-                return
+        with self._initialization_lock:
+            if self.rover_manager is not None:
+                logger.warning("Rover Manager already initialized")
+                return self.rover_manager
             
-            self.rover_manager = None
-            self._initialization_lock = threading.Lock()
-            self._initialization_attempted = False
-            self._initialized = True
-            logger.info("Global Rover Manager singleton created")
-        
-        def initialize(self, rtk_manager):
-            """
-            Initialize rover manager with RTK system
-            """
-            with self._initialization_lock:
-                if self.rover_manager is not None:
-                    logger.warning("Rover Manager already initialized")
+            if self._initialization_attempted:
+                logger.warning("Rover Manager initialization already attempted and failed")
+                return None
+            
+            self._initialization_attempted = True
+            
+            try:
+                logger.info("Initializing Rover Manager...")
+                self.rover_manager = RoverManager(rtk_manager=rtk_manager)
+                
+                # Start rover systems
+                if self.rover_manager.start():
+                    logger.info("Rover Manager initialized and started successfully")
                     return self.rover_manager
-                
-                if self._initialization_attempted:
-                    logger.warning("Rover Manager initialization already attempted and failed")
-                    return None
-                
-                self._initialization_attempted = True
-                
-                try:
-                    logger.info("Initializing Rover Manager...")
-                    self.rover_manager = RoverManager(rtk_manager=rtk_manager)
-                    
-                    # Start rover systems
-                    if self.rover_manager.start():
-                        logger.info("Rover Manager initialized and started successfully")
-                        return self.rover_manager
-                    else:
-                        logger.error("Failed to start Rover Manager")
-                        self.rover_manager = None
-                        return None
-                    
-                except Exception as e:
-                    logger.error(f"Failed to initialize Rover Manager: {e}", exc_info=True)
+                else:
+                    logger.error("Failed to start Rover Manager")
                     self.rover_manager = None
                     return None
-    
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize Rover Manager: {e}", exc_info=True)
+                self.rover_manager = None
+                return None
+
     def get_rover_manager(self):
         """Get rover manager instance"""
         return self.rover_manager
-    
+
     def is_initialized(self) -> bool:
         """Check if rover manager is initialized"""
         return self.rover_manager is not None
-    
+
     def shutdown(self):
         """Shutdown rover manager gracefully"""
         with self._initialization_lock:
@@ -630,7 +631,7 @@ class RoverManager(PositionObserver):
                 finally:
                     self.rover_manager = None
                     self._initialization_attempted = False
-    
+
     def get_status(self) -> dict:
         """Get rover system status"""
         if not self.rover_manager:
