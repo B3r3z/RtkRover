@@ -32,6 +32,7 @@ motor_config = {
 
 # Navigation parameters
 navigation_config = {
+    'update_rate': 0.1, # Control loop update rate (seconds)
     'max_speed': 0.8,  # 0.0 to 1.0
     'turn_aggressiveness': 0.6,
     'waypoint_tolerance': 1.0,  # meters
