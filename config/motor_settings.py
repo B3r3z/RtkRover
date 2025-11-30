@@ -19,6 +19,7 @@ motor_gpio_pins = {
 # Motor control parameters
 motor_config = {
     'frequency': 1000,  # Hz
+    'use_gpio': True,   # Use GPIO pins for motor control
     'min_duty_cycle': 20,  # Minimum duty cycle to move motors (%)
     'max_duty_cycle': 100,
     'ramp_step': 5,  # Percentage change per step for ramping

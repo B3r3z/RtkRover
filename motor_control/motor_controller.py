@@ -19,7 +19,7 @@ class MotorController:
     def __init__(self, 
                  motor_driver: MotorDriverInterface,
                  max_speed: float = 1.0,
-                 wheel_base: float = 0.5):  # Distance between wheels in meters (approx)
+                 wheel_base: float = 0.5):  # Distance between wheels in meters (approx) 
         """
         Initialize motor controller
         
