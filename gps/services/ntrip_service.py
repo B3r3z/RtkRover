@@ -4,8 +4,8 @@ import threading
 import queue
 from typing import List, Optional
 from ..ntrip_client import NTRIPClient
-from ..core.interfaces import NTRIPService
-from config.nmea_utils import build_dummy_gga
+from ..interfaces import NTRIPService
+from gps.nmea_parser import build_dummy_gga
 
 logger = logging.getLogger(__name__)
 

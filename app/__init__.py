@@ -135,7 +135,7 @@ def get_rover_manager():
         
         try:
             # Import here to avoid circular dependencies
-            from rover_manager_singleton import global_rover_manager
+            from rover_manager import global_rover_manager
             
             # Initialize with RTK manager
             rtk_manager = app_manager.get_rtk_manager()
@@ -195,7 +195,7 @@ def create_app():
         try:
             rover = get_rover_manager()
             if rover:
-                from rover_manager_singleton import global_rover_manager
+                from rover_manager import global_rover_manager
                 global_rover_manager.shutdown()
                 logger.info("Rover Manager shut down")
         except Exception as e:

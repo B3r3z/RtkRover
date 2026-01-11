@@ -1,7 +1,7 @@
-from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
+from abc import ABC, abstractmethod
+from typing import Optional, List, Callable
 
 class RTKStatus(Enum):
     DISCONNECTED = "Disconnected"
@@ -22,8 +22,8 @@ class Position:
     hdop: float
     rtk_status: RTKStatus
     timestamp: str
-    speed: Optional[float] = None      # prędkość w węzłach (knots)
-    heading: Optional[float] = None    # kurs w stopniach (0-360)
+    speed: Optional[float] = None      # knots
+    heading: Optional[float] = None    # degrees (0-360)
 
 @dataclass
 class RTKStats:
@@ -31,6 +31,10 @@ class RTKStats:
     nmea_errors: int
     connection_uptime: float
     avg_latency: float
+
+class PositionObserver(ABC):
+    @abstractmethod
+    def on_position_update(self, position: Position): pass
 
 class GPS(ABC):
     @abstractmethod
@@ -63,10 +67,6 @@ class NTRIPService(ABC):
     
     @abstractmethod
     def is_connected(self) -> bool: pass
-
-class PositionObserver(ABC):
-    @abstractmethod
-    def on_position_update(self, position: Position): pass
 
 class RTKSystemInterface(ABC):
     @abstractmethod

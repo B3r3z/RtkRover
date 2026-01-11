@@ -5,8 +5,8 @@ import struct
 from typing import Optional
 from pynmeagps import NMEAReader, NMEAMessage
 
-from config.nmea_parser_helper import NMEANavigationParser
-from ..core.interfaces import GPS, Position, RTKStatus
+from gps.nmea_parser import NMEANavigationParser
+from ..interfaces import GPS, Position, RTKStatus
 
 logger = logging.getLogger(__name__)
 

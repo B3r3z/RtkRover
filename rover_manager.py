@@ -9,9 +9,9 @@ from typing import Optional
 from datetime import datetime
 from queue import Queue, Empty, Full
 
-from gps.core.interfaces import PositionObserver, Position
+from gps.interfaces import PositionObserver, Position
 from navigation.navigator import Navigator
-from navigation.core.data_types import Waypoint, NavigationMode
+from navigation.types import Waypoint, NavigationMode
 from motor_control.motor_controller import MotorController
 from motor_control.drivers.l298n_driver import L298NDriver
 from config.motor_settings import motor_gpio_pins, motor_config, navigation_config
@@ -44,12 +44,7 @@ class RoverManager(PositionObserver):
             max_speed=navigation_config['max_speed'],
             turn_aggressiveness=navigation_config['turn_aggressiveness'],
             waypoint_tolerance=navigation_config['waypoint_tolerance'],
-            align_tolerance=navigation_config.get('align_tolerance', 15.0),
-            realign_threshold=navigation_config.get('realign_threshold', 30.0),
-            align_speed=navigation_config.get('align_speed', 0.4),
-            align_timeout=navigation_config.get('align_timeout', 10.0),
-            drive_correction_gain=navigation_config.get('drive_correction_gain', 0.02),
-            calibration_speed=navigation_config.get('calibration_speed', 0.7)
+            drive_correction_gain=navigation_config.get('drive_correction_gain', 0.05)
         )
         
         # Initialize motor driver
@@ -60,10 +55,8 @@ class RoverManager(PositionObserver):
         
         self.motor_controller = MotorController(
             motor_driver=motor_driver,
-            max_speed=motor_config['max_speed'],
-            turn_sensitivity=motor_config['turn_sensitivity'],
-            safety_timeout=motor_config['safety_timeout'],
-            ramp_rate=motor_config.get('ramp_rate', 0.5)
+            max_speed=motor_config.get('max_speed', 1.0),
+            wheel_base=motor_config.get('wheel_base', 0.5)
         )
         
         # Control loop
@@ -263,10 +256,10 @@ class RoverManager(PositionObserver):
                     consecutive_errors = 0
                 
                 # 🔧 NEW: Force heading calibration on first navigation start
-                from navigation.core.data_types import NavigationStatus
+                from navigation.types import NavigationStatus
                 nav_status = self.navigator.get_state().status
                 if first_navigation_start and nav_status == NavigationStatus.NAVIGATING:
-                    logger.info("🧭 First navigation start - forcing heading calibration")
+                    logger.info("First navigation start - forcing heading calibration")
                     self.navigator._current_heading = None  # Force calibration by clearing heading
                     self.navigator._calibration_mode = False  # Reset calibration flag
                     first_navigation_start = False
@@ -276,7 +269,7 @@ class RoverManager(PositionObserver):
                 
                 if nav_command:
                     # Execute command via motor controller
-                    logger.debug(f"🚗 Nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
+                    logger.debug(f"Nav command: speed={nav_command.speed:.2f}, turn={nav_command.turn_rate:.2f}")
                     self.motor_controller.execute_navigation_command(nav_command)
                 elif nav_command is None:
                     # No command (paused, idle, or error)
@@ -330,20 +323,20 @@ class RoverManager(PositionObserver):
             True if waypoint set successfully
         """
         try:
-            from navigation.core.data_types import NavigationMode, NavigationStatus
+            from navigation.types import NavigationMode, NavigationStatus
             
             # ✅ Guard: Warn if overwriting active path following
             nav_state = self.navigator.get_state()
             if (nav_state.mode == NavigationMode.PATH_FOLLOWING and 
                 nav_state.status == NavigationStatus.NAVIGATING):
-                logger.warning(f"⚠️  Overwriting active path following with single waypoint '{name or 'Unnamed'}'")
+                logger.warning(f"Overwriting active path following with single waypoint '{name or 'Unnamed'}'")
                 logger.warning(f"   {nav_state.waypoints_remaining} waypoints will be lost!")
                 logger.warning(f"   Use /cancel first to clear path, or this is intentional override")
                 # Continue anyway - user may want to override
             
             waypoint = Waypoint(lat=lat, lon=lon, name=name)
             self.navigator.set_target(waypoint)
-            logger.info(f"🎯 Navigating to waypoint: {name or 'Unnamed'}")
+            logger.info(f"Navigating to waypoint: {name or 'Unnamed'}")
             return True
         except Exception as e:
             logger.error(f"Failed to set waypoint: {e}")
@@ -424,7 +417,7 @@ class RoverManager(PositionObserver):
         Args:
             reason: Reason for emergency stop (for logging/telemetry)
         """
-        logger.critical(f"🛑 EMERGENCY STOP: {reason}")
+        logger.critical(f"EMERGENCY STOP: {reason}")
         
         # 1. Stop motors immediately
         try:
@@ -534,7 +527,7 @@ class RoverManager(PositionObserver):
             speed: Forward/backward speed (-1.0 to 1.0)
             turn_rate: Turn rate (-1.0 left to 1.0 right)
         """
-        from navigation.core.data_types import NavigationCommand
+        from navigation.types import NavigationCommand
         from datetime import datetime
         
         # Validate inputs
@@ -554,3 +547,111 @@ class RoverManager(PositionObserver):
         """Stop all motors (does not cancel navigation)"""
         self.motor_controller.emergency_stop()
         logger.info("Motors stopped")
+    
+    
+
+class GlobalRoverManager:
+    """
+    Singleton manager for entire rover system
+    Thread-safe initialization and access
+    """
+    
+    _instance: Optional['GlobalRoverManager'] = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        
+        self.rover_manager = None
+        self._initialization_lock = threading.Lock()
+        self._initialization_attempted = False
+        self._initialized = True
+        logger.info("Global Rover Manager singleton created")
+    
+    def initialize(self, rtk_manager):
+        """
+        Initialize rover manager with RTK system
+        """
+        with self._initialization_lock:
+            if self.rover_manager is not None:
+                logger.warning("Rover Manager already initialized")
+                return self.rover_manager
+            
+            if self._initialization_attempted:
+                logger.warning("Rover Manager initialization already attempted and failed")
+                return None
+            
+            self._initialization_attempted = True
+            
+            try:
+                logger.info("Initializing Rover Manager...")
+                self.rover_manager = RoverManager(rtk_manager=rtk_manager)
+                
+                # Start rover systems
+                if self.rover_manager.start():
+                    logger.info("Rover Manager initialized and started successfully")
+                    return self.rover_manager
+                else:
+                    logger.error("Failed to start Rover Manager")
+                    self.rover_manager = None
+                    return None
+                
+            except Exception as e:
+                logger.error(f"Failed to initialize Rover Manager: {e}", exc_info=True)
+                self.rover_manager = None
+                return None
+
+    def get_rover_manager(self):
+        """Get rover manager instance"""
+        return self.rover_manager
+
+    def is_initialized(self) -> bool:
+        """Check if rover manager is initialized"""
+        return self.rover_manager is not None
+
+    def shutdown(self):
+        """Shutdown rover manager gracefully"""
+        with self._initialization_lock:
+            if self.rover_manager:
+                logger.info("Shutting down Rover Manager...")
+                try:
+                    self.rover_manager.stop()
+                    logger.info("Rover Manager stopped successfully")
+                except Exception as e:
+                    logger.error(f"Error during Rover Manager shutdown: {e}", exc_info=True)
+                finally:
+                    self.rover_manager = None
+                    self._initialization_attempted = False
+
+    def get_status(self) -> dict:
+        """Get rover system status"""
+        if not self.rover_manager:
+            return {
+                "initialized": False,
+                "running": False,
+                "message": "Rover Manager not initialized"
+            }
+        
+        try:
+            status = self.rover_manager.get_rover_status()
+            status['initialized'] = True
+            return status
+        except Exception as e:
+            logger.error(f"Error getting rover status: {e}")
+            return {
+                "initialized": True,
+                "running": False,
+                "error": str(e)
+            }
+
+# Global singleton instance
+global_rover_manager = GlobalRoverManager()
